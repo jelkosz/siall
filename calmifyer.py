@@ -244,7 +244,8 @@ def load_gmail_by_filter(creds, configs):
             msgs = results.get('messages', [])
 
             if msgs:
-                res[config[TAB]].append([config[LABEL], f'=HYPERLINK(\"https://mail.google.com/mail/u/1/#search/{query}\", \"{len(msgs)}\")'])
+                uniqueThreads = len(set([msg['threadId'] for msg in msgs]))
+                res[config[TAB]].append([config[LABEL], f'=HYPERLINK(\"https://mail.google.com/mail/u/1/#search/{query}\", \"{uniqueThreads}\")'])
             
             set_execution_status(config, STATUS_SUCCESS)
 
