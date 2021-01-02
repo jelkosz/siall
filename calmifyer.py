@@ -334,10 +334,10 @@ def main():
 
                 refresh_spreadsheet(googleCreds, toUpdate, tab, sheetMetadata)
             logging.info('Updated')
-            logging.info(f'Calmifycation cycle over, sleeping for {timeout} seconds\n')
         except:
             logging.error('Calmifycation failed')
 
+        logging.info(f'Calmifycation cycle over, sleeping for {timeout} seconds\n')
         time.sleep(timeout)
 
 if __name__ == '__main__':
