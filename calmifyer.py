@@ -119,6 +119,16 @@ def load_sheet_metadata(creds):
 
     return res
 
+def extract_from_config(config, key, allowDuplicates=True):
+    res = []
+    for instance in config:
+        for category in config[instance]:
+            val = category[key]
+            if allowDuplicates or val not in res:
+                res.append(val)
+
+    return res
+
 def load_confg(creds):    
     result = sheet(creds).values().get(spreadsheetId=SPREADSHEET_ID,
                                 range='Config!A1:H').execute()
@@ -282,12 +292,7 @@ def load_bz_by_filter(apiKey, configs):
 
 # Update the Config tab by adding the execution status
 def update_config(creds, config):
-    raw_config_rows = []
-    for instance in config:
-        for category in config[instance]:
-            raw_config_rows.append(category[RAW_ROW])
-
-    write_to_spreadsheet(creds, raw_config_rows, 'Config', None)
+    write_to_spreadsheet(creds, extract_from_config(config, RAW_ROW), 'Config', None)
 
 def main():
     # logging.basicConfig(stream=sys.stdout, level=logging.INFO)
@@ -300,6 +305,7 @@ def main():
     logging.info('Loading configs')
     googleCreds = authenticate_google()
     config = load_confg(googleCreds)
+    tabs = extract_from_config(config, TAB, False)
     sheetMetadata = load_sheet_metadata(googleCreds)
     bzApiKey = load_bz_api_key()
     logging.info('Configs loaded, starting loop\n')
@@ -319,7 +325,7 @@ def main():
             logging.info('Updating output spreadsheet')
             update_config(googleCreds, config)
 
-            for tab in mails:
+            for tab in tabs:
                 toUpdate = {}
                 if tab in mails:
                     toUpdate[GMAIL_FILTER_CONFIG] = mails[tab]
