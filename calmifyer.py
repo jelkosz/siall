@@ -240,7 +240,7 @@ def load_gmail_by_filter(creds, configs):
             query = config[QUERY]
             gmailService = build('gmail', 'v1', credentials=creds, cache_discovery=False)
         
-            results = gmailService.users().messages().list(userId='me', q=query, maxResults=100, includeSpamTrash=True).execute()
+            results = gmailService.users().messages().list(userId='me', q=query, maxResults=100, includeSpamTrash=False).execute()
             msgs = results.get('messages', [])
 
             if msgs:
@@ -269,6 +269,8 @@ def load_bz_by_filter(apiKey, configs):
 
             raw = requests.get(f'https://bugzilla.redhat.com/rest/bug?{config[QUERY]}', params=query, headers=headers)
             bzs = raw.json()['bugs']
+            if (len(bzs) == 0):
+                continue
             if (SPLIT_BY not in config):
                 res[config[TAB]].append([config[LABEL], f'=HYPERLINK(\"https://bugzilla.redhat.com/buglist.cgi?{config[QUERY]}\", \"{len(bzs)}\")'])
             else:
@@ -305,8 +307,6 @@ def main():
 
     logging.info('Loading configs')
     googleCreds = authenticate_google()
-    config = load_confg(googleCreds)
-    tabs = extract_from_config(config, TAB, False)
     sheetMetadata = load_sheet_metadata(googleCreds)
     bzApiKey = load_bz_api_key()
     logging.info('Configs loaded, starting loop\n')
@@ -315,6 +315,10 @@ def main():
     while True:
         logging.info('New calmifycation cycle starting')
         try:
+            logging.info('Loading configs')
+            config = load_confg(googleCreds)
+            tabs = extract_from_config(config, TAB, False)
+
             logging.info('Loading gmail')
             mails = load_gmail_by_filter(googleCreds, config[GMAIL_FILTER_CONFIG])
             logging.info('Loaded')
@@ -343,3 +347,10 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+# TODO:
+# sorting of the bz output
+# sorting of the sections
+# if I have a custom formatting, dont break it
+# lock the sheet while updating it
+# In BZ add links to the specific bugs
