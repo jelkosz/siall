@@ -281,12 +281,13 @@ def load_bz_by_filter(apiKey, configs):
                 splitToCounts = {}
                 for bz in bzs:
                     if bz[splitBy] in splitToCounts:
-                        splitToCounts[bz[splitBy]] = splitToCounts[bz[splitBy]] + 1
+                        splitToCounts[bz[splitBy]].append(bz['id'])
                     else:
-                        splitToCounts[bz[splitBy]] = 1
+                        splitToCounts[bz[splitBy]] = [bz['id']]
                 for splitToCount in splitToCounts:
-                    values.append(f'{splitToCount}: {splitToCounts[splitToCount]}')
-       
+                    bugIds = ",".join([str(int) for int in splitToCounts[splitToCount]])
+                    queryUrl = f'https://bugzilla.redhat.com/buglist.cgi?f1=bug_id&o1=anyexact&query_format=advanced&v1={bugIds}'
+                    values.append(f'=HYPERLINK(\"{queryUrl}\", \"{splitToCount}: {len(splitToCounts[splitToCount])}\")')
             set_execution_status(config, STATUS_SUCCESS)
         except:
             set_execution_status(config, STATUS_ERROR)
@@ -353,4 +354,3 @@ if __name__ == '__main__':
 # sorting of the sections
 # if I have a custom formatting, dont break it
 # lock the sheet while updating it
-# In BZ add links to the specific bugs
