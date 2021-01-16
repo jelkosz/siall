@@ -13,8 +13,12 @@ from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 
-SPREADSHEET_ID = '1JAZXnfmyx8yQ3yeBcKORfMn9sGot-VzWPHUVPJRhPNg'
+# prod
+# SPREADSHEET_ID = '1JAZXnfmyx8yQ3yeBcKORfMn9sGot-VzWPHUVPJRhPNg'
 
+
+# dev
+SPREADSHEET_ID = '1vXVGYBpR4szN5zcee15GBoXKfpqFwG9A82yp2szYdnU'
 GMAIL_FILTER_CONFIG = 'gmail-filter'
 BZ_FILTER_CONFIG = 'bz-filter'
 
@@ -152,14 +156,23 @@ def load_confg(creds):
 def clear_spreadsheet(creds, targetRange):
   sheet(creds).values().clear(spreadsheetId=SPREADSHEET_ID, range=targetRange).execute()   
 
+def boldFormat(bold):
+    return [{'userEnteredFormat': {'textFormat': {'bold': bold}}}]
 
-def add_formatted(newValues, row, sheetId, formatBody, bold):
+def add_formatted(newValues, row, sheetId, formatBody, formats):
     newValues.append(row)
-    formatBody['requests'].append({
+
+    for col, format in enumerate(formats):
+        formatBody['requests'].append({
                 'repeatCell': {
-                    'range': {'startRowIndex': len(newValues) - 1, 'endRowIndex': len(newValues), 'sheetId': sheetId},
-                    'cell': {'userEnteredFormat': {'textFormat': {'bold': bold}}},
-                    'fields': 'userEnteredFormat.textFormat.bold',
+                    'range': {'startRowIndex': len(newValues) - 1,
+                            'endRowIndex': len(newValues),
+                            'startColumnIndex': col,
+                            'endColumnIndex': col + 1,
+                            'sheetId': sheetId
+                        },
+                    'cell': format,
+                    'fields': 'userEnteredFormat',
                 }
             })
 
@@ -172,47 +185,53 @@ def add_formatted(newValues, row, sheetId, formatBody, bold):
 def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata):
     result = sheet(creds).values().get(spreadsheetId=SPREADSHEET_ID,
                                 range=targetRange).execute()
+    # the current data on the tab
     values = result.get('values', [])
     # the output which will be sent to the spreadsheet api
     newValues = []
     
     # list of "sections" which have been updated - used to know the "toUpdate" contains something which is not yet present in the spreadsheet
     updatedSections = []
-    copyRow = False
-    
+    copyRow = True
+
+    # the current format of the data on the tab
+    cellFormats = get_sheet_formats(creds, targetRange)
+    formatRows = cellFormats.get('sheets', [])[0].get('data', [])[0].get('rowData', [])
+
     formatBody = {
         'requests': []
     }
 
-    for row in values:
+    sourceDataIndex = 0
+    for sourceDataIndex, row in enumerate(values):
         if len(row) > 0 and row[0].startswith(SECTION):
             section = parse_row(row, [SECTION])[SECTION]
             if section in toUpdate and len(toUpdate[section]) != 0:
-                add_formatted(newValues, row, sheetMetadata[targetRange], formatBody, True)
+                add_formatted(newValues, row, sheetMetadata[targetRange], formatBody, boldFormat(True))
                 updatedSections.append(section)
 
                 for newValue in toUpdate[section]:
-                    add_formatted(newValues, newValue, sheetMetadata[targetRange], formatBody, False)
+                    add_formatted(newValues, newValue, sheetMetadata[targetRange], formatBody, boldFormat(False))
                 # content replaced by new values (e.g. updated), ignore the original values until next section
                 copyRow = False
             if section in toUpdate and len(toUpdate[section]) == 0:
                 # it needs to be completely removed, ignore all other rows
                 copyRow = False
             if section not in toUpdate:
-                add_formatted(newValues, row, sheetMetadata[targetRange], formatBody, True)
+                add_formatted(newValues, row, sheetMetadata[targetRange], formatBody, boldFormat(True))
                 # no mention in the toUpdate, just copy the conent over
                 copyRow = True
         else:
             if copyRow:
                 # copy
-                add_formatted(newValues, row, sheetMetadata[targetRange], formatBody, False)
-    
+                add_formatted(newValues, row, sheetMetadata[targetRange], formatBody, formatRows[sourceDataIndex].get('values', []))
+
     for newSection in toUpdate:
         # this is a new section, needs to be added to the output
         if newSection not in updatedSections and len(toUpdate[newSection]) != 0:
-            add_formatted(newValues, [SECTION + ' ' + newSection], sheetMetadata[targetRange], formatBody, True)
+            add_formatted(newValues, [SECTION + ' ' + newSection], sheetMetadata[targetRange], formatBody, boldFormat(True))
             for newValue in toUpdate[newSection]:
-                add_formatted(newValues, newValue, sheetMetadata[targetRange], formatBody, False)
+                add_formatted(newValues, newValue, sheetMetadata[targetRange], formatBody, boldFormat(False))
 
     write_to_spreadsheet(creds, newValues, targetRange, formatBody)
 
@@ -298,6 +317,12 @@ def load_bz_by_filter(apiKey, configs):
 def update_config(creds, config):
     write_to_spreadsheet(creds, extract_from_config(config, RAW_ROW), 'Config', None)
 
+def get_sheet_formats(creds, targetRange):
+    params = {'spreadsheetId': SPREADSHEET_ID,
+              'ranges': targetRange,
+              'fields': 'sheets(data(rowData(values(userEnteredFormat)),startColumn,startRow))'}
+    return sheet(creds).get(**params).execute()
+
 def main():
     # logging.basicConfig(stream=sys.stdout, level=logging.INFO)
     logging.basicConfig(
@@ -308,11 +333,12 @@ def main():
 
     logging.info('Loading configs')
     googleCreds = authenticate_google()
+
     sheetMetadata = load_sheet_metadata(googleCreds)
     bzApiKey = load_bz_api_key()
     logging.info('Configs loaded, starting loop\n')
 
-    timeout = 5 * 60
+    timeout = 10 * 60
     while True:
         logging.info('New calmifycation cycle starting')
         try:
@@ -352,5 +378,7 @@ if __name__ == '__main__':
 # TODO:
 # sorting of the bz output
 # sorting of the sections
-# if I have a custom formatting, dont break it
 # lock the sheet while updating it
+# preserve links
+# jira integration
+# send a notification under some conditions
