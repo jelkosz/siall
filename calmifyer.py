@@ -339,7 +339,6 @@ def get_sheet_formats(creds, targetRange):
     return sheet(creds).get(**params).execute()
 
 def main():
-    # logging.basicConfig(stream=sys.stdout, level=logging.INFO)
     logging.basicConfig(
         stream=sys.stdout,
         format='%(asctime)s %(levelname)-8s %(message)s',
