@@ -14,11 +14,10 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 
 # prod
-# SPREADSHEET_ID = '1JAZXnfmyx8yQ3yeBcKORfMn9sGot-VzWPHUVPJRhPNg'
-
+SPREADSHEET_ID = '1JAZXnfmyx8yQ3yeBcKORfMn9sGot-VzWPHUVPJRhPNg'
 
 # dev
-SPREADSHEET_ID = '1vXVGYBpR4szN5zcee15GBoXKfpqFwG9A82yp2szYdnU'
+# SPREADSHEET_ID = '1vXVGYBpR4szN5zcee15GBoXKfpqFwG9A82yp2szYdnU'
 GMAIL_FILTER_CONFIG = 'gmail-filter'
 BZ_FILTER_CONFIG = 'bz-filter'
 
@@ -176,6 +175,23 @@ def add_formatted(newValues, row, sheetId, formatBody, formats):
                 }
             })
 
+# Splits the combination of data and format to two separate parts making sure that there is format for each data entry and vice versa
+def normalize_data_and_format(formattedRows):
+    resData = []
+    resFormats = []
+    for row in formattedRows:
+        dataRow = []
+        formatRow = []
+        resData.append(dataRow)
+        resFormats.append(formatRow)
+        for col in row.get('values', []):
+            dataVal = col.get('userEnteredValue', {}).get('stringValue', None)
+            if dataVal is not None:
+                dataRow.append(dataVal)
+                formatRow.append({'userEnteredFormat': col.get('userEnteredFormat', {'textFormat': {'bold': False}})})
+
+    return (resData, resFormats)
+
 # toUpdate format:
 # {'the section name': [new values]}
 # The behavior:
@@ -183,27 +199,26 @@ def add_formatted(newValues, row, sheetId, formatBody, formats):
 # If the section is in the toUpdate and it has an empty list as a value, the whole section will be removed from the result
 # If the section is not in the toUpdate, it will be ignored (e.g. the content of the section will be preserved as is)
 def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata):
-    result = sheet(creds).values().get(spreadsheetId=SPREADSHEET_ID,
-                                range=targetRange).execute()
-    # the current data on the tab
-    values = result.get('values', [])
+    formattedRows = normalize_data_and_format(get_sheet_formats(creds, targetRange).get('sheets', [])[0].get('data', [])[0].get('rowData', []))
+    data = formattedRows[0]
+    formats = formattedRows[1]
+
     # the output which will be sent to the spreadsheet api
     newValues = []
     
     # list of "sections" which have been updated - used to know the "toUpdate" contains something which is not yet present in the spreadsheet
     updatedSections = []
-    copyRow = True
+    copyRow = False
 
     # the current format of the data on the tab
-    cellFormats = get_sheet_formats(creds, targetRange)
-    formatRows = cellFormats.get('sheets', [])[0].get('data', [])[0].get('rowData', [])
+    # cellFormats = get_sheet_formats(creds, targetRange)
+    # formatRows = cellFormats.get('sheets', [])[0].get('data', [])[0].get('rowData', [])
 
     formatBody = {
         'requests': []
     }
 
-    sourceDataIndex = 0
-    for sourceDataIndex, row in enumerate(values):
+    for sourceDataIndex, row in enumerate(data):
         if len(row) > 0 and row[0].startswith(SECTION):
             section = parse_row(row, [SECTION])[SECTION]
             if section in toUpdate and len(toUpdate[section]) != 0:
@@ -224,7 +239,7 @@ def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata):
         else:
             if copyRow:
                 # copy
-                add_formatted(newValues, row, sheetMetadata[targetRange], formatBody, formatRows[sourceDataIndex].get('values', []))
+                add_formatted(newValues, row, sheetMetadata[targetRange], formatBody, formats[sourceDataIndex])
 
     for newSection in toUpdate:
         # this is a new section, needs to be added to the output
@@ -320,7 +335,7 @@ def update_config(creds, config):
 def get_sheet_formats(creds, targetRange):
     params = {'spreadsheetId': SPREADSHEET_ID,
               'ranges': targetRange,
-              'fields': 'sheets(data(rowData(values(userEnteredFormat)),startColumn,startRow))'}
+              'fields': 'sheets(data(rowData(values(userEnteredFormat,userEnteredValue)),startColumn,startRow))'}
     return sheet(creds).get(**params).execute()
 
 def main():
@@ -379,6 +394,7 @@ if __name__ == '__main__':
 # sorting of the bz output
 # sorting of the sections
 # lock the sheet while updating it
-# preserve links
 # jira integration
 # send a notification under some conditions
+# if there is exactly one BZ which satisfies the filter, the result is just "1" without the split + all etc
+# add support for custom formatting of labels
