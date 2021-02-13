@@ -209,10 +209,6 @@ def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata):
     updatedSections = []
     copyRow = False
 
-    # the current format of the data on the tab
-    # cellFormats = get_sheet_formats(creds, targetRange)
-    # formatRows = cellFormats.get('sheets', [])[0].get('data', [])[0].get('rowData', [])
-
     formatBody = {
         'requests': []
     }
