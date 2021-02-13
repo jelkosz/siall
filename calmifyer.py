@@ -14,10 +14,10 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 
 # prod
-SPREADSHEET_ID = '1JAZXnfmyx8yQ3yeBcKORfMn9sGot-VzWPHUVPJRhPNg'
+# SPREADSHEET_ID = '1JAZXnfmyx8yQ3yeBcKORfMn9sGot-VzWPHUVPJRhPNg'
 
 # dev
-# SPREADSHEET_ID = '1vXVGYBpR4szN5zcee15GBoXKfpqFwG9A82yp2szYdnU'
+SPREADSHEET_ID = '1vXVGYBpR4szN5zcee15GBoXKfpqFwG9A82yp2szYdnU'
 GMAIL_FILTER_CONFIG = 'gmail-filter'
 BZ_FILTER_CONFIG = 'bz-filter'
 
@@ -185,10 +185,9 @@ def normalize_data_and_format(formattedRows):
         resData.append(dataRow)
         resFormats.append(formatRow)
         for col in row.get('values', []):
-            dataVal = col.get('userEnteredValue', {}).get('stringValue', None)
-            if dataVal is not None:
-                dataRow.append(dataVal)
-                formatRow.append({'userEnteredFormat': col.get('userEnteredFormat', {'textFormat': {'bold': False}})})
+            dataVal = col.get('userEnteredValue', {}).get('stringValue', '')
+            dataRow.append(dataVal)
+            formatRow.append({'userEnteredFormat': col.get('userEnteredFormat', {'textFormat': {'bold': False}})})
 
     return (resData, resFormats)
 
@@ -397,3 +396,5 @@ if __name__ == '__main__':
 # send a notification under some conditions
 # if there is exactly one BZ which satisfies the filter, the result is just "1" without the split + all etc
 # add support for custom formatting of labels
+# if there is a formatted column without text, it will not be cleared up
+# add option to have WIP limits
