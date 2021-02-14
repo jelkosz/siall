@@ -152,8 +152,22 @@ def load_confg(creds):
 
     return res
 
-def clear_spreadsheet(creds, targetRange):
-  sheet(creds).values().clear(spreadsheetId=SPREADSHEET_ID, range=targetRange).execute()   
+def clear_spreadsheet(creds, targetRange, sheetId, numOfLinesToClear):
+    deleteRows = {
+        "requests": [
+            {
+            "deleteDimension": {
+                "range": {
+                "sheetId": sheetId,
+                "dimension": "ROWS",
+                "startIndex": 0,
+                "endIndex": numOfLinesToClear
+                }
+            }
+            }
+        ]
+    }
+    sheet(creds).batchUpdate(spreadsheetId=SPREADSHEET_ID, body=deleteRows).execute()
 
 def boldFormat(bold):
     return [{'userEnteredFormat': {'textFormat': {'bold': bold}}}]
@@ -243,15 +257,15 @@ def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata):
             for newValue in toUpdate[newSection]:
                 add_formatted(newValues, newValue, sheetMetadata[targetRange], formatBody, boldFormat(False))
 
-    write_to_spreadsheet(creds, newValues, targetRange, formatBody)
+    write_to_spreadsheet(creds, newValues, targetRange, sheetMetadata[targetRange], formatBody, len(data))
 
-def write_to_spreadsheet(creds, values, targetRange, formatBody):
-    clear_spreadsheet(creds, targetRange)
+def write_to_spreadsheet(creds, values, targetRange, sheetId, formatBody, numOfLinesToClear):
+    clear_spreadsheet(creds, targetRange, sheetId, numOfLinesToClear)
 
     body = {
         'values': values
     }
-    result = sheet(creds).values().update(
+    sheet(creds).values().update(
         spreadsheetId=SPREADSHEET_ID, range=targetRange,
         valueInputOption='USER_ENTERED', body=body).execute()
 
@@ -324,8 +338,8 @@ def load_bz_by_filter(apiKey, configs):
     return res
 
 # Update the Config tab by adding the execution status
-def update_config(creds, config):
-    write_to_spreadsheet(creds, extract_from_config(config, RAW_ROW), 'Config', None)
+def update_config(creds, config, sheetMetadata):
+    write_to_spreadsheet(creds, extract_from_config(config, RAW_ROW), 'Config', sheetMetadata['Config'], None, len(extract_from_config(config, RAW_ROW)))
 
 def get_sheet_formats(creds, targetRange):
     params = {'spreadsheetId': SPREADSHEET_ID,
@@ -350,33 +364,30 @@ def main():
     timeout = 10 * 60
     while True:
         logging.info('New calmifycation cycle starting')
-        try:
-            logging.info('Loading configs')
-            config = load_confg(googleCreds)
-            tabs = extract_from_config(config, TAB, False)
+        logging.info('Loading configs')
+        config = load_confg(googleCreds)
+        tabs = extract_from_config(config, TAB, False)
 
-            logging.info('Loading gmail')
-            mails = load_gmail_by_filter(googleCreds, config[GMAIL_FILTER_CONFIG])
-            logging.info('Loaded')
+        logging.info('Loading gmail')
+        mails = load_gmail_by_filter(googleCreds, config[GMAIL_FILTER_CONFIG])
+        logging.info('Loaded')
 
-            logging.info('Loading bugzilla')
-            bzs = load_bz_by_filter(bzApiKey, config[BZ_FILTER_CONFIG])
-            logging.info('Loaded')
+        logging.info('Loading bugzilla')
+        bzs = load_bz_by_filter(bzApiKey, config[BZ_FILTER_CONFIG])
+        logging.info('Loaded')
 
-            logging.info('Updating output spreadsheet')
-            update_config(googleCreds, config)
+        logging.info('Updating output spreadsheet')
+        update_config(googleCreds, config, sheetMetadata)
 
-            for tab in tabs:
-                toUpdate = {}
-                if tab in mails:
-                    toUpdate[GMAIL_FILTER_CONFIG] = mails[tab]
-                if tab in bzs:
-                    toUpdate[BZ_FILTER_CONFIG] = bzs[tab]
+        for tab in tabs:
+            toUpdate = {}
+            if tab in mails:
+                toUpdate[GMAIL_FILTER_CONFIG] = mails[tab]
+            if tab in bzs:
+                toUpdate[BZ_FILTER_CONFIG] = bzs[tab]
 
-                refresh_spreadsheet(googleCreds, toUpdate, tab, sheetMetadata)
-            logging.info('Updated')
-        except:
-            logging.error('Calmifycation failed')
+            refresh_spreadsheet(googleCreds, toUpdate, tab, sheetMetadata)
+        logging.info('Updated')
 
         logging.info(f'Calmifycation cycle over, sleeping for {timeout} seconds\n')
         time.sleep(timeout)
@@ -394,3 +405,4 @@ if __name__ == '__main__':
 # add support for custom formatting of labels
 # if there is a formatted column without text, it will not be cleared up
 # add option to have WIP limits
+# optimize: the sheet() does not ned to be called repeatedly
