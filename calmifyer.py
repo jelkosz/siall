@@ -205,6 +205,24 @@ def normalize_data_and_format(formattedRows):
 
     return (resData, resFormats)
 
+
+def add_column_heights(numOfRows, sheetId, formatBody):
+    body = {
+            "updateDimensionProperties": {
+                "range": {
+                    "sheetId": sheetId,
+                    "dimension": "ROWS",
+                    "startIndex": 0,
+                    "endIndex": numOfRows
+                },
+                "properties": {
+                    "pixelSize": 20
+                },
+                "fields": "pixelSize"
+            }
+            }
+    formatBody['requests'].append(body)
+
 # toUpdate format:
 # {'the section name': [new values]}
 # The behavior:
@@ -222,6 +240,7 @@ def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata):
     # list of "sections" which have been updated - used to know the "toUpdate" contains something which is not yet present in the spreadsheet
     updatedSections = []
     copyRow = False
+    sheetId = sheetMetadata[targetRange]
 
     formatBody = {
         'requests': []
@@ -231,33 +250,35 @@ def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata):
         if len(row) > 0 and row[0].startswith(SECTION):
             section = parse_row(row, [SECTION])[SECTION]
             if section in toUpdate and len(toUpdate[section]) != 0:
-                add_formatted(newValues, row, sheetMetadata[targetRange], formatBody, boldFormat(True))
+                add_formatted(newValues, row, sheetId, formatBody, boldFormat(True))
                 updatedSections.append(section)
 
                 for newValue in toUpdate[section]:
-                    add_formatted(newValues, newValue, sheetMetadata[targetRange], formatBody, boldFormat(False))
+                    add_formatted(newValues, newValue, sheetId, formatBody, boldFormat(False))
                 # content replaced by new values (e.g. updated), ignore the original values until next section
                 copyRow = False
             if section in toUpdate and len(toUpdate[section]) == 0:
                 # it needs to be completely removed, ignore all other rows
                 copyRow = False
             if section not in toUpdate:
-                add_formatted(newValues, row, sheetMetadata[targetRange], formatBody, boldFormat(True))
+                add_formatted(newValues, row, sheetId, formatBody, boldFormat(True))
                 # no mention in the toUpdate, just copy the conent over
                 copyRow = True
         else:
             if copyRow:
                 # copy
-                add_formatted(newValues, row, sheetMetadata[targetRange], formatBody, formats[sourceDataIndex])
+                add_formatted(newValues, row, sheetId, formatBody, formats[sourceDataIndex])
 
     for newSection in toUpdate:
         # this is a new section, needs to be added to the output
         if newSection not in updatedSections and len(toUpdate[newSection]) != 0:
-            add_formatted(newValues, [SECTION + ' ' + newSection], sheetMetadata[targetRange], formatBody, boldFormat(True))
+            add_formatted(newValues, [SECTION + ' ' + newSection], sheetId, formatBody, boldFormat(True))
             for newValue in toUpdate[newSection]:
-                add_formatted(newValues, newValue, sheetMetadata[targetRange], formatBody, boldFormat(False))
+                add_formatted(newValues, newValue, sheetId, formatBody, boldFormat(False))
 
-    write_to_spreadsheet(creds, newValues, targetRange, sheetMetadata[targetRange], formatBody, len(data))
+
+    add_column_heights(len(newValues), sheetId, formatBody)
+    write_to_spreadsheet(creds, newValues, targetRange, sheetId, formatBody, len(data))
 
 def write_to_spreadsheet(creds, values, targetRange, sheetId, formatBody, numOfLinesToClear):
     clear_spreadsheet(creds, targetRange, sheetId, numOfLinesToClear)
