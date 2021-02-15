@@ -85,34 +85,17 @@ def sheet(creds):
     spreadsheetService = build('sheets', 'v4', credentials=creds, cache_discovery=False)
     return spreadsheetService.spreadsheets()
 
-def parse_row(row, params):
+def parse_row(row, params, formattedRow = None, rowid = -1):
     res = {}
-    for col in row:
+    for colid, col in enumerate(row):
         for param in params:
-            if col.startswith(param):    
+            if col.startswith(param):
                 res[param] = col[len(param):len(col)].strip()
+                if formattedRow is not None:
+                    res[param + '-format'] = formattedRow[rowid][colid]
     res[RAW_ROW] = row
+
     return res
-
-def set_execution_status(config, status):
-    row = config[RAW_ROW]
-    parsed = parse_row(row, [LAST_EXECUTION_STATUS, LAST_SUCCESSFUL_EXECUTION_TIMESTAMP])
-
-    def add_or_replace(arr, key, value):
-        if value is None:
-            return arr
-
-        if key in parsed:
-            return [f'{key}{value}' if col.startswith(key) else col for col in arr]
-        else:
-            return arr + [f'{key}{value}']
-    
-    
-    timestamp = None
-    if status == STATUS_SUCCESS:
-        timestamp = datetime.now().strftime("%H:%M:%S")
-    lastStatus = add_or_replace(row, LAST_EXECUTION_STATUS, status)
-    config[RAW_ROW] = add_or_replace(lastStatus, LAST_SUCCESSFUL_EXECUTION_TIMESTAMP, timestamp)
 
 def load_sheet_metadata(creds):
     sheets = sheet(creds).get(spreadsheetId=SPREADSHEET_ID).execute().get('sheets', [])
@@ -122,20 +105,11 @@ def load_sheet_metadata(creds):
 
     return res
 
-def extract_from_config(config, key, allowDuplicates=True):
-    res = []
-    for instance in config:
-        for category in config[instance]:
-            val = category[key]
-            if allowDuplicates or val not in res:
-                res.append(val)
-
-    return res
-
 def load_confg(creds):    
-    result = sheet(creds).values().get(spreadsheetId=SPREADSHEET_ID,
-                                range='Config!A1:H').execute()
-    values = result.get('values', [])
+    formattedRows = normalize_data_and_format(get_sheet_formats(creds, "config").get('sheets', [])[0].get('data', [])[0].get('rowData', []))
+    data = formattedRows[0]
+    formats = formattedRows[1]
+    
 
     gmailFilterConfigs = []
     bzFilterConfigs = []
@@ -143,13 +117,12 @@ def load_confg(creds):
     res[GMAIL_FILTER_CONFIG] = gmailFilterConfigs
     res[BZ_FILTER_CONFIG] = bzFilterConfigs
 
-    if values:
-        for row in values:
+    if data:
+        for rowid, row in enumerate(data):
             if row[0] == GMAIL_FILTER_CONFIG:
-                gmailFilterConfigs.append(parse_row(row, [LABEL, TAB, QUERY, LAST_SUCCESSFUL_EXECUTION_TIMESTAMP, LAST_EXECUTION_STATUS]))
+                gmailFilterConfigs.append(parse_row(row, [LABEL, TAB, QUERY, LAST_SUCCESSFUL_EXECUTION_TIMESTAMP, LAST_EXECUTION_STATUS], formats, rowid))
             if row[0] == BZ_FILTER_CONFIG:
-                bzFilterConfigs.append(parse_row(row, [LABEL, TAB, QUERY, SPLIT_BY, LAST_SUCCESSFUL_EXECUTION_TIMESTAMP, LAST_EXECUTION_STATUS]))
-
+                bzFilterConfigs.append(parse_row(row, [LABEL, TAB, QUERY, SPLIT_BY, LAST_SUCCESSFUL_EXECUTION_TIMESTAMP, LAST_EXECUTION_STATUS], formats, rowid))
     return res
 
 def clear_spreadsheet(creds, targetRange, sheetId, numOfLinesToClear):
@@ -188,6 +161,21 @@ def add_formatted(newValues, row, sheetId, formatBody, formats):
                     'fields': 'userEnteredFormat',
                 }
             })
+
+# The newVlaues is a list of eiter strings (e.g. value to print to the doc) or a dict
+# which looks like {'value': 'some value to print', 'format': 'the format in which it shold be printed'}
+def add_formatted_from_values(newValues, row, sheetId, formatBody):
+    rowValues = []
+    rowFormats = []
+    for col in row:
+        if hasattr(col, 'get'):
+            rowValues.append(col.get('value', ''))
+            rowFormats.append(col.get('format', {'userEnteredFormat': {'textFormat': {'bold': False}}}))
+        else:
+            rowValues.append(col)
+            rowFormats.append({'userEnteredFormat': {'textFormat': {'bold': False}}})
+    
+    add_formatted(newValues, rowValues, sheetId, formatBody, rowFormats)
 
 # Splits the combination of data and format to two separate parts making sure that there is format for each data entry and vice versa
 def normalize_data_and_format(formattedRows):
@@ -254,7 +242,7 @@ def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata):
                 updatedSections.append(section)
 
                 for newValue in toUpdate[section]:
-                    add_formatted(newValues, newValue, sheetId, formatBody, boldFormat(False))
+                    add_formatted_from_values(newValues, newValue, sheetId, formatBody)
                 # content replaced by new values (e.g. updated), ignore the original values until next section
                 copyRow = False
             if section in toUpdate and len(toUpdate[section]) == 0:
@@ -274,7 +262,7 @@ def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata):
         if newSection not in updatedSections and len(toUpdate[newSection]) != 0:
             add_formatted(newValues, [SECTION + ' ' + newSection], sheetId, formatBody, boldFormat(True))
             for newValue in toUpdate[newSection]:
-                add_formatted(newValues, newValue, sheetId, formatBody, boldFormat(False))
+                add_formatted_from_values(newValues, newValue, sheetId, formatBody)
 
 
     add_column_heights(len(newValues), sheetId, formatBody)
@@ -293,74 +281,78 @@ def write_to_spreadsheet(creds, values, targetRange, sheetId, formatBody, numOfL
     if formatBody is not None:
         sheet(creds).batchUpdate(spreadsheetId=SPREADSHEET_ID, body=formatBody).execute()
 
+def formatted_label_from_config(config):
+    labelValue = config[LABEL]
+    labelFormat = config.get(LABEL + '-format', None)
+
+    if labelFormat is None:
+        return labelValue
+    else:
+        return {'value': labelValue, 'format': labelFormat}
+
 # takes a list of gmail queries, queries gmail and returns a map of aggregated results
 # output: {'tab to which to add the results': ['label', num of messages satisgying the filter, 'link to the gmail satisfying the filter']}
 def load_gmail_by_filter(creds, configs):
     res = {}
     for config in configs:
-        try:
-            if config[TAB] not in res:
-                res[config[TAB]] = []
-            query = config[QUERY]
-            gmailService = build('gmail', 'v1', credentials=creds, cache_discovery=False)
+        if config[TAB] not in res:
+            res[config[TAB]] = []
+
+        label = formatted_label_from_config(config)
+        query = config[QUERY]
+        gmailService = build('gmail', 'v1', credentials=creds, cache_discovery=False)
         
-            results = gmailService.users().messages().list(userId='me', q=query, maxResults=100, includeSpamTrash=False).execute()
-            msgs = results.get('messages', [])
+        results = gmailService.users().messages().list(userId='me', q=query, maxResults=100, includeSpamTrash=False).execute()
+        msgs = results.get('messages', [])
 
-            if msgs:
-                uniqueThreads = len(set([msg['threadId'] for msg in msgs]))
-                res[config[TAB]].append([config[LABEL], f'=HYPERLINK(\"https://mail.google.com/mail/u/1/#search/{query}\", \"{uniqueThreads}\")'])
-            
-            set_execution_status(config, STATUS_SUCCESS)
-
-        except:
-            set_execution_status(config, STATUS_ERROR)
-
-
+        if msgs:
+            uniqueThreads = len(set([msg['threadId'] for msg in msgs]))
+            res[config[TAB]].append([label, f'=HYPERLINK(\"https://mail.google.com/mail/u/1/#search/{query}\", \"{uniqueThreads}\")'])
     return res
 
 def load_bz_by_filter(apiKey, configs):
     res = {}
     for config in configs:
-        try:
-            if config[TAB] not in res:
-                res[config[TAB]] = []
+        if config[TAB] not in res:
+            res[config[TAB]] = []
+        label = formatted_label_from_config(config)
 
-            headers = {'Content-Type': 'application/json', 'Accpet': 'application/json'}
-            query = {
-                'api_key': apiKey,
-            }
+        headers = {'Content-Type': 'application/json', 'Accpet': 'application/json'}
+        query = {
+            'api_key': apiKey,
+        }
+        raw = requests.get(f'https://bugzilla.redhat.com/rest/bug?{config[QUERY]}', params=query, headers=headers)
+        bzs = raw.json()['bugs']
+        if (len(bzs) == 0):
+            continue
+        if (SPLIT_BY not in config):
+            res[config[TAB]].append([label, f'=HYPERLINK(\"https://bugzilla.redhat.com/buglist.cgi?{config[QUERY]}\", \"{len(bzs)}\")'])
+        else:
+            splitBy = config[SPLIT_BY]
+            values = [label, f'=HYPERLINK(\"https://bugzilla.redhat.com/buglist.cgi?{config[QUERY]}\", \"All: {len(bzs)}\")']
+            res[config[TAB]].append(values)
 
-            raw = requests.get(f'https://bugzilla.redhat.com/rest/bug?{config[QUERY]}', params=query, headers=headers)
-            bzs = raw.json()['bugs']
-            if (len(bzs) == 0):
-                continue
-            if (SPLIT_BY not in config):
-                res[config[TAB]].append([config[LABEL], f'=HYPERLINK(\"https://bugzilla.redhat.com/buglist.cgi?{config[QUERY]}\", \"{len(bzs)}\")'])
-            else:
-                splitBy = config[SPLIT_BY]
-                values = [config[LABEL], f'=HYPERLINK(\"https://bugzilla.redhat.com/buglist.cgi?{config[QUERY]}\", \"All: {len(bzs)}\")']
-                res[config[TAB]].append(values)
-                
-                splitToCounts = {}
-                for bz in bzs:
-                    if bz[splitBy] in splitToCounts:
-                        splitToCounts[bz[splitBy]].append(bz['id'])
-                    else:
-                        splitToCounts[bz[splitBy]] = [bz['id']]
-                for splitToCount in splitToCounts:
-                    bugIds = ",".join([str(int) for int in splitToCounts[splitToCount]])
-                    queryUrl = f'https://bugzilla.redhat.com/buglist.cgi?f1=bug_id&o1=anyexact&query_format=advanced&v1={bugIds}'
-                    values.append(f'=HYPERLINK(\"{queryUrl}\", \"{splitToCount}: {len(splitToCounts[splitToCount])}\")')
-            set_execution_status(config, STATUS_SUCCESS)
-        except:
-            set_execution_status(config, STATUS_ERROR)
-
+            splitToCounts = {}
+            for bz in bzs:
+                if bz[splitBy] in splitToCounts:
+                    splitToCounts[bz[splitBy]].append(bz['id'])
+                else:
+                    splitToCounts[bz[splitBy]] = [bz['id']]
+            for splitToCount in splitToCounts:
+                bugIds = ",".join([str(int) for int in splitToCounts[splitToCount]])
+                queryUrl = f'https://bugzilla.redhat.com/buglist.cgi?f1=bug_id&o1=anyexact&query_format=advanced&v1={bugIds}'
+                values.append(f'=HYPERLINK(\"{queryUrl}\", \"{splitToCount}: {len(splitToCounts[splitToCount])}\")')
     return res
 
-# Update the Config tab by adding the execution status
-def update_config(creds, config, sheetMetadata):
-    write_to_spreadsheet(creds, extract_from_config(config, RAW_ROW), 'Config', sheetMetadata['Config'], None, len(extract_from_config(config, RAW_ROW)))
+def extract_from_config(config, key, allowDuplicates=True):
+    res = []
+    for instance in config:
+        for category in config[instance]:
+            val = category[key]
+            if allowDuplicates or val not in res:
+                res.append(val)
+
+    return res
 
 def get_sheet_formats(creds, targetRange):
     params = {'spreadsheetId': SPREADSHEET_ID,
@@ -398,8 +390,6 @@ def main():
         logging.info('Loaded')
 
         logging.info('Updating output spreadsheet')
-        update_config(googleCreds, config, sheetMetadata)
-
         for tab in tabs:
             toUpdate = {}
             if tab in mails:
@@ -423,8 +413,8 @@ if __name__ == '__main__':
 # jira integration
 # send a notification under some conditions
 # if there is exactly one BZ which satisfies the filter, the result is just "1" without the split + all etc
-# add support for custom formatting of labels
 # if there is a formatted column without text, it will not be cleared up
 # add option to have WIP limits
 # optimize: the sheet() does not need to be called repeatedly
-# sometimes it fails on: Details: "Invalid requests[0].deleteDimension: You can't delete all the rows on the sheet.">
+# sometimes it fails on: Details: "Invalid requests[0].deleteDimension: You can't delete all the rows on the sheet."
+# format the section titles to be prettier
