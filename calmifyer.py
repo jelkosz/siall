@@ -32,8 +32,6 @@ TAB = 'tab:'
 # query: filter query it has to satisfy
 QUERY = 'query:'
 
-LAST_SUCCESSFUL_EXECUTION_TIMESTAMP = 'lastSuccessfulExecution:'
-LAST_EXECUTION_STATUS = 'lastExecutionStatus:'
 STATUS_SUCCESS = 'Success'
 STATUS_ERROR = 'ERROR'
 
@@ -120,9 +118,9 @@ def load_confg(creds):
     if data:
         for rowid, row in enumerate(data):
             if row[0] == GMAIL_FILTER_CONFIG:
-                gmailFilterConfigs.append(parse_row(row, [LABEL, TAB, QUERY, LAST_SUCCESSFUL_EXECUTION_TIMESTAMP, LAST_EXECUTION_STATUS], formats, rowid))
+                gmailFilterConfigs.append(parse_row(row, [LABEL, TAB, QUERY], formats, rowid))
             if row[0] == BZ_FILTER_CONFIG:
-                bzFilterConfigs.append(parse_row(row, [LABEL, TAB, QUERY, SPLIT_BY, LAST_SUCCESSFUL_EXECUTION_TIMESTAMP, LAST_EXECUTION_STATUS], formats, rowid))
+                bzFilterConfigs.append(parse_row(row, [LABEL, TAB, QUERY, SPLIT_BY], formats, rowid))
     return res
 
 def clear_spreadsheet(creds, targetRange, sheetId, numOfLinesToClear):
@@ -418,3 +416,4 @@ if __name__ == '__main__':
 # optimize: the sheet() does not need to be called repeatedly
 # sometimes it fails on: Details: "Invalid requests[0].deleteDimension: You can't delete all the rows on the sheet."
 # format the section titles to be prettier
+# add support for conditional formatting (e.g. if the num of bugs is higher than X than make it red)
