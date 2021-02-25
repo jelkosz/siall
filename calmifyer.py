@@ -411,7 +411,6 @@ if __name__ == '__main__':
 # jira integration
 # send a notification under some conditions
 # if there is exactly one BZ which satisfies the filter, the result is just "1" without the split + all etc
-# if there is a formatted column without text, it will not be cleared up
 # add option to have WIP limits
 # optimize: the sheet() does not need to be called repeatedly
 # sometimes it fails on: Details: "Invalid requests[0].deleteDimension: You can't delete all the rows on the sheet."
