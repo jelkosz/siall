@@ -1,83 +1,16 @@
 from __future__ import print_function
 
-import requests
 import json
-import pickle
-import os.path
+import os
 from datetime import datetime
 import time
 import logging
 import sys
 
 from googleapiclient.discovery import build
-from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
-
-# prod
-SPREADSHEET_ID = '1JAZXnfmyx8yQ3yeBcKORfMn9sGot-VzWPHUVPJRhPNg'
-
-# dev
-# SPREADSHEET_ID = '1vXVGYBpR4szN5zcee15GBoXKfpqFwG9A82yp2szYdnU'
-GMAIL_FILTER_CONFIG = 'gmail-filter'
-BZ_FILTER_CONFIG = 'bz-filter'
-
-# PUBLIC PARAMETERS
-
-# generic parameters
-
-# label: the label printed next to it
-LABEL = 'label:'
-# tab: the tab to which it will be printed
-TAB = 'tab:'
-# query: filter query it has to satisfy
-QUERY = 'query:'
-
-STATUS_SUCCESS = 'Success'
-STATUS_ERROR = 'ERROR'
-
-# bugzilla specific parameters
-# how the result should be split (e.g. by status/priority/severity)
-SPLIT_BY = 'splitBy:'
-
-# INTERNAL CONSTANTS
-# Section of output
-SECTION = 'section:'
-RAW_ROW = 'rawRow'
-
-def authenticate_google():
-    # If modifying these scopes, delete the file token.pickle.
-    SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/gmail.readonly']
-    creds = None
-    # The file token.pickle stores the user's access and refresh tokens, and is
-    # created automatically when the authorization flow completes for the first
-    # time.
-    if os.path.exists('token.pickle'):
-        with open('token.pickle', 'rb') as token:
-            creds = pickle.load(token)
-    # If there are no (valid) credentials available, let the user log in.
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
-            creds = flow.run_local_server(port=0)
-        # Save the credentials for the next run
-        with open('token.pickle', 'wb') as token:
-            pickle.dump(creds, token)
-
-    return creds
-
-def load_bz_api_key():
-    msg = 'Problem loading bugzilla API key. Please login to bugzilla web interface, go to Preferences->API Keys, generate a new one and paste it into a file named bz.apikey next to this file.'
-    if os.path.exists('bz.apikey'):
-        with open('bz.apikey', 'r') as apiKey:
-            key = apiKey.readline().strip()
-            if key is None:
-                logging.error(msg)
-            return key
-    else:
-        logging.error(msg)
+from common.constants import *
+from common.googleapi import authenticate_google
 
 def sheet(creds):
     spreadsheetService = build('sheets', 'v4', credentials=creds, cache_discovery=False)
@@ -103,24 +36,19 @@ def load_sheet_metadata(creds):
 
     return res
 
-def load_confg(creds):    
+def load_confg(creds, modules):    
     formattedRows = normalize_data_and_format(get_sheet_formats(creds, "config").get('sheets', [])[0].get('data', [])[0].get('rowData', []))
     data = formattedRows[0]
     formats = formattedRows[1]
     
-
-    gmailFilterConfigs = []
-    bzFilterConfigs = []
     res = {}
-    res[GMAIL_FILTER_CONFIG] = gmailFilterConfigs
-    res[BZ_FILTER_CONFIG] = bzFilterConfigs
+    for module_key in modules:
+        res[module_key] = []
 
     if data:
         for rowid, row in enumerate(data):
-            if row[0] == GMAIL_FILTER_CONFIG:
-                gmailFilterConfigs.append(parse_row(row, [LABEL, TAB, QUERY], formats, rowid))
-            if row[0] == BZ_FILTER_CONFIG:
-                bzFilterConfigs.append(parse_row(row, [LABEL, TAB, QUERY, SPLIT_BY], formats, rowid))
+            if row[0] in res:
+                res[row[0]].append(parse_row(row, modules[row[0]].get_config_params(), formats, rowid))
     return res
 
 def clear_spreadsheet(creds, targetRange, sheetId, numOfLinesToClear):
@@ -279,69 +207,6 @@ def write_to_spreadsheet(creds, values, targetRange, sheetId, formatBody, numOfL
     if formatBody is not None:
         sheet(creds).batchUpdate(spreadsheetId=SPREADSHEET_ID, body=formatBody).execute()
 
-def formatted_label_from_config(config):
-    labelValue = config[LABEL]
-    labelFormat = config.get(LABEL + '-format', None)
-
-    if labelFormat is None:
-        return labelValue
-    else:
-        return {'value': labelValue, 'format': labelFormat}
-
-# takes a list of gmail queries, queries gmail and returns a map of aggregated results
-# output: {'tab to which to add the results': ['label', num of messages satisgying the filter, 'link to the gmail satisfying the filter']}
-def load_gmail_by_filter(creds, configs):
-    res = {}
-    for config in configs:
-        if config[TAB] not in res:
-            res[config[TAB]] = []
-
-        label = formatted_label_from_config(config)
-        query = config[QUERY]
-        gmailService = build('gmail', 'v1', credentials=creds, cache_discovery=False)
-        
-        results = gmailService.users().messages().list(userId='me', q=query, maxResults=100, includeSpamTrash=False).execute()
-        msgs = results.get('messages', [])
-
-        if msgs:
-            uniqueThreads = len(set([msg['threadId'] for msg in msgs]))
-            res[config[TAB]].append([label, f'=HYPERLINK(\"https://mail.google.com/mail/u/1/#search/{query}\", \"{uniqueThreads}\")'])
-    return res
-
-def load_bz_by_filter(apiKey, configs):
-    res = {}
-    for config in configs:
-        if config[TAB] not in res:
-            res[config[TAB]] = []
-        label = formatted_label_from_config(config)
-
-        headers = {'Content-Type': 'application/json', 'Accpet': 'application/json'}
-        query = {
-            'api_key': apiKey,
-        }
-        raw = requests.get(f'https://bugzilla.redhat.com/rest/bug?{config[QUERY]}', params=query, headers=headers)
-        bzs = raw.json()['bugs']
-        if (len(bzs) == 0):
-            continue
-        if (SPLIT_BY not in config):
-            res[config[TAB]].append([label, f'=HYPERLINK(\"https://bugzilla.redhat.com/buglist.cgi?{config[QUERY]}\", \"{len(bzs)}\")'])
-        else:
-            splitBy = config[SPLIT_BY]
-            values = [label, f'=HYPERLINK(\"https://bugzilla.redhat.com/buglist.cgi?{config[QUERY]}\", \"All: {len(bzs)}\")']
-            res[config[TAB]].append(values)
-
-            splitToCounts = {}
-            for bz in bzs:
-                if bz[splitBy] in splitToCounts:
-                    splitToCounts[bz[splitBy]].append(bz['id'])
-                else:
-                    splitToCounts[bz[splitBy]] = [bz['id']]
-            for splitToCount in splitToCounts:
-                bugIds = ",".join([str(int) for int in splitToCounts[splitToCount]])
-                queryUrl = f'https://bugzilla.redhat.com/buglist.cgi?f1=bug_id&o1=anyexact&query_format=advanced&v1={bugIds}'
-                values.append(f'=HYPERLINK(\"{queryUrl}\", \"{splitToCount}: {len(splitToCounts[splitToCount])}\")')
-    return res
-
 def extract_from_config(config, key, allowDuplicates=True):
     res = []
     for instance in config:
@@ -365,40 +230,49 @@ def main():
         level=logging.INFO,
         datefmt='%Y-%m-%d %H:%M:%S')
 
-    logging.info('Loading configs')
-    googleCreds = authenticate_google()
+    logging.info('Loading plugins')
 
-    sheetMetadata = load_sheet_metadata(googleCreds)
-    bzApiKey = load_bz_api_key()
-    logging.info('Configs loaded, starting loop\n')
+
+    sys.path.append('plugins')
+    plugins = {}
+    for file in os.listdir("plugins"):
+        if file.endswith(".py"):
+            name = file.removesuffix('.py')
+            if name == '__init__':
+                continue
+
+            logging.info(f'Trying to load plguin {name}')
+            module = __import__(name)
+            plugins[module.get_config_key()] = module
+            logging.info(f'Plguin {name} loaded')
 
     timeout = 10 * 60
     while True:
-        logging.info('New calmifycation cycle starting')
-        logging.info('Loading configs')
-        config = load_confg(googleCreds)
+        logging.info('Loading common config')
+        googleCreds = authenticate_google()
+        sheetMetadata = load_sheet_metadata(googleCreds)
+        config = load_confg(googleCreds, plugins)
         tabs = extract_from_config(config, TAB, False)
+        logging.info('Configs loaded')
 
-        logging.info('Loading gmail')
-        mails = load_gmail_by_filter(googleCreds, config[GMAIL_FILTER_CONFIG])
-        logging.info('Loaded')
-
-        logging.info('Loading bugzilla')
-        bzs = load_bz_by_filter(bzApiKey, config[BZ_FILTER_CONFIG])
-        logging.info('Loaded')
-
-        logging.info('Updating output spreadsheet')
+        logging.info('Executing plugins')
+        results = {}
+        for plugin_name in plugins:
+            logging.info(f'Executing plugin {plugin_name}')
+            res = plugins[plugin_name].execute(config[plugin_name])
+            results[plugin_name] = res
+            logging.info(f'Executed plugin {plugin_name}')
+        
+        logging.info('All plugins executed, updating output spreadsheet')
         for tab in tabs:
             toUpdate = {}
-            if tab in mails:
-                toUpdate[GMAIL_FILTER_CONFIG] = mails[tab]
-            if tab in bzs:
-                toUpdate[BZ_FILTER_CONFIG] = bzs[tab]
+            for plugin_name in results:
+                if tab in results[plugin_name]:
+                    toUpdate[plugin_name] = results[plugin_name][tab]
+            logging.info(f'Updating tab {tab}')
+            refresh_spreadsheet(googleCreds, toUpdate, tab, sheetMetadata)       
 
-            refresh_spreadsheet(googleCreds, toUpdate, tab, sheetMetadata)
-        logging.info('Updated')
-
-        logging.info(f'Calmifycation cycle over, sleeping for {timeout} seconds\n')
+        logging.info(f'All tabs updated, sleeping for {timeout}s')
         time.sleep(timeout)
 
 if __name__ == '__main__':

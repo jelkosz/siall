@@ -3,4 +3,5 @@ credentials.json
 token.pickle
 .vscode/
 bz.apikey
+__pycache__
 
