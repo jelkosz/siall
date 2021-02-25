@@ -14,10 +14,10 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 
 # prod
-# SPREADSHEET_ID = '1JAZXnfmyx8yQ3yeBcKORfMn9sGot-VzWPHUVPJRhPNg'
+SPREADSHEET_ID = '1JAZXnfmyx8yQ3yeBcKORfMn9sGot-VzWPHUVPJRhPNg'
 
 # dev
-SPREADSHEET_ID = '1vXVGYBpR4szN5zcee15GBoXKfpqFwG9A82yp2szYdnU'
+# SPREADSHEET_ID = '1vXVGYBpR4szN5zcee15GBoXKfpqFwG9A82yp2szYdnU'
 GMAIL_FILTER_CONFIG = 'gmail-filter'
 BZ_FILTER_CONFIG = 'bz-filter'
 
@@ -161,7 +161,7 @@ def clear_spreadsheet(creds, targetRange, sheetId, numOfLinesToClear):
                 "sheetId": sheetId,
                 "dimension": "ROWS",
                 "startIndex": 0,
-                "endIndex": numOfLinesToClear
+                "endIndex": numOfLinesToClear - 1
                 }
             }
             }
@@ -426,4 +426,5 @@ if __name__ == '__main__':
 # add support for custom formatting of labels
 # if there is a formatted column without text, it will not be cleared up
 # add option to have WIP limits
-# optimize: the sheet() does not ned to be called repeatedly
+# optimize: the sheet() does not need to be called repeatedly
+# sometimes it fails on: Details: "Invalid requests[0].deleteDimension: You can't delete all the rows on the sheet.">
