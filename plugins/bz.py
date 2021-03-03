@@ -5,6 +5,7 @@ import requests
 
 from common.constants import TAB, LABEL, SPLIT_BY, QUERY
 from common.formatting import formatted_label_from_config
+from common.helpers import split_issues
 
 # the key in the config tab in the spreadsheet which this module represents
 def get_config_key():
@@ -20,41 +21,27 @@ def load_bz_api_key():
             key = apiKey.readline().strip()
             if key is None:
                 logging.error(msg)
+            # FIXME - dont return None here to crash later or at least handle later
             return key
     else:
         logging.error(msg)
 
-def execute(configs):
+def execute(config):
     apiKey = load_bz_api_key()
-    res = {}
-    for config in configs:
-        if config[TAB] not in res:
-            res[config[TAB]] = []
-        label = formatted_label_from_config(config)
 
-        headers = {'Content-Type': 'application/json', 'Accpet': 'application/json'}
-        query = {
-            'api_key': apiKey,
-        }
-        raw = requests.get(f'https://bugzilla.redhat.com/rest/bug?{config[QUERY]}', params=query, headers=headers)
-        bzs = raw.json()['bugs']
-        if (len(bzs) == 0):
-            continue
-        if (SPLIT_BY not in config):
-            res[config[TAB]].append([label, f'=HYPERLINK(\"https://bugzilla.redhat.com/buglist.cgi?{config[QUERY]}\", \"{len(bzs)}\")'])
-        else:
-            splitBy = config[SPLIT_BY]
-            values = [label, f'=HYPERLINK(\"https://bugzilla.redhat.com/buglist.cgi?{config[QUERY]}\", \"All: {len(bzs)}\")']
-            res[config[TAB]].append(values)
-
-            splitToCounts = {}
-            for bz in bzs:
-                if bz[splitBy] in splitToCounts:
-                    splitToCounts[bz[splitBy]].append(bz['id'])
-                else:
-                    splitToCounts[bz[splitBy]] = [bz['id']]
-            for splitToCount in splitToCounts:
-                bugIds = ",".join([str(int) for int in splitToCounts[splitToCount]])
-                queryUrl = f'https://bugzilla.redhat.com/buglist.cgi?f1=bug_id&o1=anyexact&query_format=advanced&v1={bugIds}'
-                values.append(f'=HYPERLINK(\"{queryUrl}\", \"{splitToCount}: {len(splitToCounts[splitToCount])}\")')
-    return res
+    headers = {'Content-Type': 'application/json', 'Accpet': 'application/json'}
+    query = {
+        'api_key': apiKey,
+    }
+    raw = requests.get(f'https://bugzilla.redhat.com/rest/bug?{config[QUERY]}', params=query, headers=headers)
+    bzs = raw.json()['bugs']
+    
+    return split_issues(
+        config,
+        bzs,
+        f'https://bugzilla.redhat.com/buglist.cgi?{config[QUERY]}',
+        lambda issues: 'https://bugzilla.redhat.com/buglist.cgi?f1=bug_id&o1=anyexact&query_format=advanced&v1=' + ",".join([str(int) for int in issues]),
+        lambda bz: bz['id'],
+        lambda bz, splitBy: bz[splitBy]
+    )
+    

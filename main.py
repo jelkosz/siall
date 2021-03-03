@@ -47,6 +47,8 @@ def load_confg(creds, modules):
 
     if data:
         for rowid, row in enumerate(data):
+            if len(row) == 0:
+                continue
             if row[0] in res:
                 res[row[0]].append(parse_row(row, modules[row[0]].get_config_params(), formats, rowid))
     return res
@@ -259,10 +261,18 @@ def main():
         results = {}
         for plugin_name in plugins:
             logging.info(f'Executing plugin {plugin_name}')
-            res = plugins[plugin_name].execute(config[plugin_name])
-            results[plugin_name] = res
+            pluginRes = {}
+            for pluginConfig in config[plugin_name]:
+                if pluginConfig[TAB] not in pluginRes:
+                    pluginRes[pluginConfig[TAB]] = []
+
+                res = plugins[plugin_name].execute(pluginConfig)
+                if len(res) != 0:
+                    pluginRes[pluginConfig[TAB]].append(res)
+
+            results[plugin_name] = pluginRes
             logging.info(f'Executed plugin {plugin_name}')
-        
+
         logging.info('All plugins executed, updating output spreadsheet')
         for tab in tabs:
             toUpdate = {}
