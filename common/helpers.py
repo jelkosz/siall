@@ -24,7 +24,7 @@ def split_issues(config, issues, linkToAll, createIssueQuery, extractKey, extrac
             splitToCounts[val] = [extractKey(issue)]
     
     for splitToCount in splitToCounts:
-        queryUrl = createIssueQuery(splitToCount)
+        queryUrl = createIssueQuery(splitToCounts[splitToCount])
         values.append(f'=HYPERLINK(\"{queryUrl}\", \"{splitToCount}: {len(splitToCounts[splitToCount])}\")')
     
     return values
