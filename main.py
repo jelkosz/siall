@@ -192,7 +192,10 @@ def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata):
             for newValue in toUpdate[newSection]:
                 add_formatted_from_values(newValues, newValue, sheetId, formatBody)
 
-
+    # this is a hack - the point is that it is not possible to delete all the rows; at least one needs to stay.
+    # If that one row contains some data/formats, it might cause issues. Especially if that one row was meant to
+    # be deleted. This way the last row of the sheet will always be empty (unless the user adds something there during the cycle, which sould not be a big deal)
+    newValues.append([''])
     add_column_heights(len(newValues), sheetId, formatBody)
     write_to_spreadsheet(creds, newValues, targetRange, sheetId, formatBody, len(data))
 
@@ -292,11 +295,10 @@ if __name__ == '__main__':
 # sorting of the bz output
 # sorting of the sections
 # lock the sheet while updating it
-# jira integration
 # send a notification under some conditions
 # if there is exactly one BZ which satisfies the filter, the result is just "1" without the split + all etc
 # add option to have WIP limits
 # optimize: the sheet() does not need to be called repeatedly
-# sometimes it fails on: Details: "Invalid requests[0].deleteDimension: You can't delete all the rows on the sheet."
 # format the section titles to be prettier
 # add support for conditional formatting (e.g. if the num of bugs is higher than X than make it red)
+# formatting inside of cell does not survive a re-render
