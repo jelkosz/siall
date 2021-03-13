@@ -45,7 +45,6 @@ def execute(config):
         print('Jira credentials not provided, ignoring plugin. In order to execute the jira plugin, please run the python main.py --jirauser <jira user name> --jirapass <jira password>')
         return []
 
-    # issues[0].fields.status.name
     for opt, arg in opts:
       if opt in ("--jirauser"):
         user = arg

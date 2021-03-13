@@ -6,6 +6,7 @@ from datetime import datetime
 import time
 import logging
 import sys
+import getopt
 
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
@@ -228,6 +229,28 @@ def get_sheet_formats(creds, targetRange):
               'fields': 'sheets(data(rowData(values(userEnteredFormat,userEnteredValue)),startColumn,startRow))'}
     return sheet(creds).get(**params).execute()
 
+def get_env():
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], 'he:', ['help', 'environment='])
+    except getopt.GetoptError:
+        print('No parameters provided. Use -h for more info')
+        sys.exit(2)
+
+    for opt, arg in opts:
+        if opt in ('-h', '--help'):
+            print('\
+A simple tool to aggregate information from various sources and add them to a spreadsheet.\n\
+Use the -e/--environment to provide the ID of the output spreadsheet. \n\
+For example, if the address of he doc you want to use https://docs.google.com/spreadsheets/d/1J324nfmyx8yQ3yeBcKORfMn9sSot-XzWPHUVPJRhPDg/ \n\
+run the command as python main.py -e 1J324nfmyx8yQ3yeBcKORfMn9sSot-XzWPHUVPJRhPDg \n\
+            ')
+            sys.exit(0)
+        elif opt in ('-e', '--environment'):
+            return arg
+
+    print('Incorrect parameters provided. Use -h for more info')
+    sys.exit(2)
+
 def main():
     logging.basicConfig(
         stream=sys.stdout,
@@ -235,8 +258,9 @@ def main():
         level=logging.INFO,
         datefmt='%Y-%m-%d %H:%M:%S')
 
+    # global SPREADSHEET_ID
+    # SPREADSHEET_ID = get_env()
     logging.info('Loading plugins')
-
 
     sys.path.append('plugins')
     plugins = {}
