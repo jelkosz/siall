@@ -24,6 +24,8 @@ def get_config_params():
 
 def rgetattr(obj, attr, *args):
     def _getattr(obj, attr):
+        if obj is None:
+            return ''
         return getattr(obj, attr, *args)
     return reduce(_getattr, [obj] + attr.split('.'))
 

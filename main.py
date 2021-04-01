@@ -12,6 +12,7 @@ from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 from common.constants import *
 from common.googleapi import authenticate_google
+from common.formatting import boldFormat
 
 def sheet(creds):
     spreadsheetService = build('sheets', 'v4', credentials=creds, cache_discovery=False)
@@ -38,7 +39,7 @@ def load_sheet_metadata(creds):
     return res
 
 def load_confg(creds, modules):    
-    formattedRows = normalize_data_and_format(get_sheet_formats(creds, "config").get('sheets', [])[0].get('data', [])[0].get('rowData', []))
+    formattedRows = normalize_data_and_format(get_sheet_formats_and_data(creds, "config").get('sheets', [])[0].get('data', [])[0].get('rowData', []))
     data = formattedRows[0]
     formats = formattedRows[1]
     
@@ -52,7 +53,7 @@ def load_confg(creds, modules):
                 continue
             if row[0] in res:
                 res[row[0]].append(parse_row(row, modules[row[0]].get_config_params(), formats, rowid))
-    return res
+    return (res, formattedRows)
 
 def clear_spreadsheet(creds, targetRange, sheetId, numOfLinesToClear):
     deleteRows = {
@@ -70,9 +71,6 @@ def clear_spreadsheet(creds, targetRange, sheetId, numOfLinesToClear):
         ]
     }
     sheet(creds).batchUpdate(spreadsheetId=SPREADSHEET_ID, body=deleteRows).execute()
-
-def boldFormat(bold):
-    return [{'userEnteredFormat': {'textFormat': {'bold': bold}}}]
 
 def add_formatted(newValues, row, sheetId, formatBody, formats):
     newValues.append(row)
@@ -116,7 +114,8 @@ def normalize_data_and_format(formattedRows):
         resData.append(dataRow)
         resFormats.append(formatRow)
         for col in row.get('values', []):
-            dataVal = col.get('userEnteredValue', {}).get('stringValue', '')
+            userEnteredValue = col.get('userEnteredValue', {})
+            dataVal = userEnteredValue.get('stringValue', userEnteredValue.get('formulaValue', ''))
             dataRow.append(dataVal)
             formatRow.append({'userEnteredFormat': col.get('userEnteredFormat', {'textFormat': {'bold': False}})})
 
@@ -146,8 +145,7 @@ def add_column_heights(numOfRows, sheetId, formatBody):
 # If the section is in the toUpdate and it has some values (eg non empty list), the section content will be replaced by the values
 # If the section is in the toUpdate and it has an empty list as a value, the whole section will be removed from the result
 # If the section is not in the toUpdate, it will be ignored (e.g. the content of the section will be preserved as is)
-def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata):
-    formattedRows = normalize_data_and_format(get_sheet_formats(creds, targetRange).get('sheets', [])[0].get('data', [])[0].get('rowData', []))
+def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata, formattedRows):
     data = formattedRows[0]
     formats = formattedRows[1]
 
@@ -223,33 +221,41 @@ def extract_from_config(config, key, allowDuplicates=True):
 
     return res
 
-def get_sheet_formats(creds, targetRange):
+def find_column_index_by_prefix(row, prefix):
+    for colId, col in enumerate(row):
+        if col.startswith(TIMESTAMP):
+            return colId
+    return -1
+
+def add_or_replace_timestamp(row, timestamp):
+    colId = find_column_index_by_prefix(row, TIMESTAMP)
+    if colId == -1:
+        row.append(f'{TIMESTAMP}{timestamp}')
+    else:
+        row[colId] = (f'{TIMESTAMP}{timestamp}')
+    
+
+def add_timestamp_to_config(rawConfig, id, timestamp):
+    data = rawConfig[1][0]
+    for row in data:
+        for col in row:
+            if col.startswith(ID):
+                idVal = col[len(ID):len(col)].strip()
+                if idVal == id:
+                    add_or_replace_timestamp(row, timestamp)
+                    return
+
+def get_sheet_formats_and_data(creds, targetRange):
     params = {'spreadsheetId': SPREADSHEET_ID,
               'ranges': targetRange,
               'fields': 'sheets(data(rowData(values(userEnteredFormat,userEnteredValue)),startColumn,startRow))'}
     return sheet(creds).get(**params).execute()
 
-def get_env():
-    try:
-        opts, args = getopt.getopt(sys.argv[1:], 'he:', ['help', 'environment='])
-    except getopt.GetoptError:
-        print('No parameters provided. Use -h for more info')
-        sys.exit(2)
-
-    for opt, arg in opts:
-        if opt in ('-h', '--help'):
-            print('\
-A simple tool to aggregate information from various sources and add them to a spreadsheet.\n\
-Use the -e/--environment to provide the ID of the output spreadsheet. \n\
-For example, if the address of he doc you want to use https://docs.google.com/spreadsheets/d/1J324nfmyx8yQ3yeBcKORfMn9sSot-XzWPHUVPJRhPDg/ \n\
-run the command as python main.py -e 1J324nfmyx8yQ3yeBcKORfMn9sSot-XzWPHUVPJRhPDg \n\
-            ')
-            sys.exit(0)
-        elif opt in ('-e', '--environment'):
-            return arg
-
-    print('Incorrect parameters provided. Use -h for more info')
-    sys.exit(2)
+def load_data_per_tab(creds, tabs):
+    currentData = {}
+    for tab in tabs:
+        currentData[tab] = normalize_data_and_format(get_sheet_formats_and_data(creds, tab).get('sheets', [])[0].get('data', [])[0].get('rowData', []))
+    return currentData
 
 def main():
     logging.basicConfig(
@@ -258,8 +264,6 @@ def main():
         level=logging.INFO,
         datefmt='%Y-%m-%d %H:%M:%S')
 
-    # global SPREADSHEET_ID
-    # SPREADSHEET_ID = get_env()
     logging.info('Loading plugins')
 
     sys.path.append('plugins')
@@ -280,12 +284,15 @@ def main():
         logging.info('Loading common config')
         googleCreds = authenticate_google()
         sheetMetadata = load_sheet_metadata(googleCreds)
-        config = load_confg(googleCreds, plugins)
+        rawConfig = load_confg(googleCreds, plugins)
+        config = rawConfig[0]
         tabs = extract_from_config(config, TAB, False)
         logging.info('Configs loaded')
 
         logging.info('Executing plugins')
         results = {}
+
+        currentData = load_data_per_tab(googleCreds, tabs)
         for plugin_name in plugins:
             logging.info(f'Executing plugin {plugin_name}')
             pluginRes = {}
@@ -307,9 +314,15 @@ def main():
                 if tab in results[plugin_name]:
                     toUpdate[plugin_name] = results[plugin_name][tab]
             logging.info(f'Updating tab {tab}')
-            refresh_spreadsheet(googleCreds, toUpdate, tab, sheetMetadata)       
+            refresh_spreadsheet(googleCreds, toUpdate, tab, sheetMetadata, currentData[tab])
 
         logging.info(f'All tabs updated, sleeping for {timeout}s')
+
+# update config
+        add_timestamp_to_config(rawConfig, '1234', 'AAA this is the new timestamp')
+        refresh_spreadsheet(googleCreds, [], 'Config', sheetMetadata, rawConfig[1])
+
+        break
         time.sleep(timeout)
 
 if __name__ == '__main__':
@@ -326,3 +339,4 @@ if __name__ == '__main__':
 # format the section titles to be prettier
 # add support for conditional formatting (e.g. if the num of bugs is higher than X than make it red)
 # formatting inside of cell does not survive a re-render
+# add validations of params from the "config" tab - currently the app crashes if something is missing

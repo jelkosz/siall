@@ -21,3 +21,6 @@ SPLIT_BY = 'splitBy:'
 # Section of output
 SECTION = 'section:'
 RAW_ROW = 'rawRow'
+
+ID = 'id:'
+TIMESTAMP = 'lastExecutedTimestamp:'
