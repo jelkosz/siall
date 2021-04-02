@@ -320,7 +320,11 @@ def main():
                     res = []
                     if TIMESTAMP in pluginConfig:
                         # has been executed already, call the plugin
-                        res = plugins[plugin_name].execute(pluginConfig, find_prev_row(pluginConfig, currentData[pluginConfig[TAB]], pluginConfig[ID]))
+                        res = plugins[plugin_name].execute_stateful(
+                            pluginConfig,
+                            find_prev_row(pluginConfig, currentData[pluginConfig[TAB]], pluginConfig[ID]),
+                            pluginConfig[TIMESTAMP]
+                            )
                         res.append(f'{ID}{pluginConfig[ID]}')
                     else:
                         # has never been executed, just remember the current timestamp

@@ -5,7 +5,7 @@ from functools import reduce
 from jira import JIRA
 import re
 
-from common.constants import TAB, LABEL, SPLIT_BY, QUERY
+from common.constants import TAB, LABEL, SPLIT_BY, QUERY, ID, STATEFUL, TIMESTAMP
 from common.formatting import formatted_label_from_config
 from common.helpers import split_issues
 
@@ -20,7 +20,7 @@ def get_config_key():
     return 'jira-filter'
 
 def get_config_params():
-    return [LABEL, TAB, QUERY, SPLIT_BY, MAX_RESULTS]
+    return [LABEL, TAB, QUERY, SPLIT_BY, MAX_RESULTS, ID, STATEFUL, TIMESTAMP]
 
 def rgetattr(obj, attr, *args):
     def _getattr(obj, attr):
@@ -40,7 +40,7 @@ def create_query(issueIds):
 
     return f'{baseJql}{issuesJql}'
 
-def execute(config):
+def load_issues(config):
     try:
         opts, args = getopt.getopt(sys.argv[1:], "", ["jirauser=", "jirapass="])
     except getopt.GetoptError:
@@ -54,7 +54,10 @@ def execute(config):
         passwd = arg
 
     jira = JIRA(server=JIRA_BASE_URL, auth=(user, passwd))
-    issues = jira.search_issues(config[QUERY], maxResults=config[MAX_RESULTS])
+    return jira.search_issues(config[QUERY], maxResults=config[MAX_RESULTS])
+
+def execute(config):
+    issues = load_issues(config)
 
     return split_issues(
         config,
@@ -63,3 +66,7 @@ def execute(config):
         create_query,
         lambda issue: issue.key,
         rgetattr)
+
+def execute_stateful(config, prevRow, timestamp):
+    issues = load_issues(config)
+    return ['Z']
