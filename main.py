@@ -233,17 +233,21 @@ def add_or_replace_timestamp(row, timestamp):
         row.append(f'{TIMESTAMP}{timestamp}')
     else:
         row[colId] = (f'{TIMESTAMP}{timestamp}')
-    
+
+def find_row_index(rows, key, value):
+    for id, row in enumerate(rows):
+        for col in row:
+            if col.startswith(key):
+                val = col[len(key):len(col)].strip()
+                if val == value:
+                    return id
+    return -1
 
 def add_timestamp_to_config(rawConfig, id, timestamp):
     data = rawConfig[1][0]
-    for row in data:
-        for col in row:
-            if col.startswith(ID):
-                idVal = col[len(ID):len(col)].strip()
-                if idVal == id:
-                    add_or_replace_timestamp(row, timestamp)
-                    return
+    rowIndex = find_row_index(data, ID, id)
+    if rowIndex != -1:
+        add_or_replace_timestamp(data[rowIndex], timestamp)
 
 def get_sheet_formats_and_data(creds, targetRange):
     params = {'spreadsheetId': SPREADSHEET_ID,
@@ -256,6 +260,17 @@ def load_data_per_tab(creds, tabs):
     for tab in tabs:
         currentData[tab] = normalize_data_and_format(get_sheet_formats_and_data(creds, tab).get('sheets', [])[0].get('data', [])[0].get('rowData', []))
     return currentData
+
+def is_stateful(config):
+    return config.get(STATEFUL, 'false') == 'true'
+
+def find_prev_row(config, rows, id):
+    data = rows[0]
+    rowIndex = find_row_index(data, ID, id)
+    if rowIndex == -1:
+        return []
+    else:
+        return data[rowIndex]
 
 def main():
     logging.basicConfig(
@@ -300,7 +315,17 @@ def main():
                 if pluginConfig[TAB] not in pluginRes:
                     pluginRes[pluginConfig[TAB]] = []
 
-                res = plugins[plugin_name].execute(pluginConfig)
+                if is_stateful(pluginConfig):
+                    res = []
+                    if TIMESTAMP in pluginConfig:
+                        # has been executed already, call the plugin
+                        res = plugins[plugin_name].execute(pluginConfig, find_prev_row(pluginConfig, currentData[pluginConfig[TAB]], pluginConfig[ID]))
+                        res.append(f'{ID}{pluginConfig[ID]}')
+                    else:
+                        # has never been executed, just remember the current timestamp
+                        add_timestamp_to_config(rawConfig, pluginConfig[ID], time.time())
+                else:
+                    res = plugins[plugin_name].execute(pluginConfig)
                 if len(res) != 0:
                     pluginRes[pluginConfig[TAB]].append(res)
 
@@ -316,11 +341,11 @@ def main():
             logging.info(f'Updating tab {tab}')
             refresh_spreadsheet(googleCreds, toUpdate, tab, sheetMetadata, currentData[tab])
 
+        logging.info('Updating tab Config')
+        refresh_spreadsheet(googleCreds, [], 'Config', sheetMetadata, rawConfig[1])
         logging.info(f'All tabs updated, sleeping for {timeout}s')
 
-# update config
-        add_timestamp_to_config(rawConfig, '1234', 'AAA this is the new timestamp')
-        refresh_spreadsheet(googleCreds, [], 'Config', sheetMetadata, rawConfig[1])
+        
 
         break
         time.sleep(timeout)
@@ -340,3 +365,4 @@ if __name__ == '__main__':
 # add support for conditional formatting (e.g. if the num of bugs is higher than X than make it red)
 # formatting inside of cell does not survive a re-render
 # add validations of params from the "config" tab - currently the app crashes if something is missing
+ 

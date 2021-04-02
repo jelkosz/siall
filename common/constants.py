@@ -24,3 +24,4 @@ RAW_ROW = 'rawRow'
 
 ID = 'id:'
 TIMESTAMP = 'lastExecutedTimestamp:'
+STATEFUL = 'stateful:'
