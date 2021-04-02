@@ -194,7 +194,8 @@ def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata, formattedRo
     # this is a hack - the point is that it is not possible to delete all the rows; at least one needs to stay.
     # If that one row contains some data/formats, it might cause issues. Especially if that one row was meant to
     # be deleted. This way the last row of the sheet will always be empty (unless the user adds something there during the cycle, which sould not be a big deal)
-    newValues.append([''])
+    # The row can not be empty since the API would not return it in that case, so at least some value needs to be in it
+    newValues.append(['_'])
     add_column_heights(len(newValues), sheetId, formatBody)
     write_to_spreadsheet(creds, newValues, targetRange, sheetId, formatBody, len(data))
 
