@@ -244,7 +244,7 @@ def find_row_index(rows, key, value):
                     return id
     return -1
 
-def add_timestamp_to_config(rawConfig, id, timestamp):
+def set_timestamp_in_config(rawConfig, id, timestamp):
     data = rawConfig[1][0]
     rowIndex = find_row_index(data, ID, id)
     if rowIndex != -1:
@@ -320,15 +320,18 @@ def main():
                     res = []
                     if TIMESTAMP in pluginConfig:
                         # has been executed already, call the plugin
-                        res = plugins[plugin_name].execute_stateful(
+                        resWithTimestamp = plugins[plugin_name].execute_stateful(
                             pluginConfig,
                             find_prev_row(pluginConfig, currentData[pluginConfig[TAB]], pluginConfig[ID]),
-                            pluginConfig[TIMESTAMP]
+                            float(pluginConfig[TIMESTAMP])
                             )
-                        res.append(f'{ID}{pluginConfig[ID]}')
+                        res = resWithTimestamp[RES]
+                        if len(res) > 0:
+                            res.append(f'{ID}{pluginConfig[ID]}')
+                        set_timestamp_in_config(rawConfig, pluginConfig[ID], resWithTimestamp[TIMESTAMP])
                     else:
                         # has never been executed, just remember the current timestamp
-                        add_timestamp_to_config(rawConfig, pluginConfig[ID], time.time())
+                        set_timestamp_in_config(rawConfig, pluginConfig[ID], datetime.timestamp(datetime.now()))
                 else:
                     res = plugins[plugin_name].execute(pluginConfig)
                 if len(res) != 0:
@@ -370,4 +373,5 @@ if __name__ == '__main__':
 # add support for conditional formatting (e.g. if the num of bugs is higher than X than make it red)
 # formatting inside of cell does not survive a re-render
 # add validations of params from the "config" tab - currently the app crashes if something is missing
- 
+# siall (simply integrate it all, or, see all)
+# the config tab update takes suspiciously long time
