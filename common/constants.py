@@ -1,8 +1,8 @@
 # prod
-SPREADSHEET_ID = '1JAZXnfmyx8yQ3yeBcKORfMn9sGot-VzWPHUVPJRhPNg'
+# SPREADSHEET_ID = '1JAZXnfmyx8yQ3yeBcKORfMn9sGot-VzWPHUVPJRhPNg'
 
 # dev
-# SPREADSHEET_ID = '1vXVGYBpR4szN5zcee15GBoXKfpqFwG9A82yp2szYdnU'
+SPREADSHEET_ID = '1vXVGYBpR4szN5zcee15GBoXKfpqFwG9A82yp2szYdnU'
 
 # PUBLIC PARAMETERS
 # generic parameters
@@ -21,3 +21,8 @@ SPLIT_BY = 'splitBy:'
 # Section of output
 SECTION = 'section:'
 RAW_ROW = 'rawRow'
+
+ID = 'id:'
+TIMESTAMP = 'lastExecutedTimestamp:'
+STATEFUL = 'stateful:'
+RES = 'res:'

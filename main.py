@@ -6,11 +6,13 @@ from datetime import datetime
 import time
 import logging
 import sys
+import getopt
 
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 from common.constants import *
 from common.googleapi import authenticate_google
+from common.formatting import boldFormat
 
 def sheet(creds):
     spreadsheetService = build('sheets', 'v4', credentials=creds, cache_discovery=False)
@@ -37,7 +39,7 @@ def load_sheet_metadata(creds):
     return res
 
 def load_confg(creds, modules):    
-    formattedRows = normalize_data_and_format(get_sheet_formats(creds, "config").get('sheets', [])[0].get('data', [])[0].get('rowData', []))
+    formattedRows = normalize_data_and_format(get_sheet_formats_and_data(creds, "config").get('sheets', [])[0].get('data', [])[0].get('rowData', []))
     data = formattedRows[0]
     formats = formattedRows[1]
     
@@ -51,7 +53,7 @@ def load_confg(creds, modules):
                 continue
             if row[0] in res:
                 res[row[0]].append(parse_row(row, modules[row[0]].get_config_params(), formats, rowid))
-    return res
+    return (res, formattedRows)
 
 def clear_spreadsheet(creds, targetRange, sheetId, numOfLinesToClear):
     deleteRows = {
@@ -69,9 +71,6 @@ def clear_spreadsheet(creds, targetRange, sheetId, numOfLinesToClear):
         ]
     }
     sheet(creds).batchUpdate(spreadsheetId=SPREADSHEET_ID, body=deleteRows).execute()
-
-def boldFormat(bold):
-    return [{'userEnteredFormat': {'textFormat': {'bold': bold}}}]
 
 def add_formatted(newValues, row, sheetId, formatBody, formats):
     newValues.append(row)
@@ -115,7 +114,8 @@ def normalize_data_and_format(formattedRows):
         resData.append(dataRow)
         resFormats.append(formatRow)
         for col in row.get('values', []):
-            dataVal = col.get('userEnteredValue', {}).get('stringValue', '')
+            userEnteredValue = col.get('userEnteredValue', {})
+            dataVal = userEnteredValue.get('stringValue', userEnteredValue.get('formulaValue', ''))
             dataRow.append(dataVal)
             formatRow.append({'userEnteredFormat': col.get('userEnteredFormat', {'textFormat': {'bold': False}})})
 
@@ -145,8 +145,7 @@ def add_column_heights(numOfRows, sheetId, formatBody):
 # If the section is in the toUpdate and it has some values (eg non empty list), the section content will be replaced by the values
 # If the section is in the toUpdate and it has an empty list as a value, the whole section will be removed from the result
 # If the section is not in the toUpdate, it will be ignored (e.g. the content of the section will be preserved as is)
-def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata):
-    formattedRows = normalize_data_and_format(get_sheet_formats(creds, targetRange).get('sheets', [])[0].get('data', [])[0].get('rowData', []))
+def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata, formattedRows):
     data = formattedRows[0]
     formats = formattedRows[1]
 
@@ -195,7 +194,8 @@ def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata):
     # this is a hack - the point is that it is not possible to delete all the rows; at least one needs to stay.
     # If that one row contains some data/formats, it might cause issues. Especially if that one row was meant to
     # be deleted. This way the last row of the sheet will always be empty (unless the user adds something there during the cycle, which sould not be a big deal)
-    newValues.append([''])
+    # The row can not be empty since the API would not return it in that case, so at least some value needs to be in it
+    newValues.append(['_'])
     add_column_heights(len(newValues), sheetId, formatBody)
     write_to_spreadsheet(creds, newValues, targetRange, sheetId, formatBody, len(data))
 
@@ -222,11 +222,56 @@ def extract_from_config(config, key, allowDuplicates=True):
 
     return res
 
-def get_sheet_formats(creds, targetRange):
+def find_column_index_by_prefix(row, prefix):
+    for colId, col in enumerate(row):
+        if col.startswith(TIMESTAMP):
+            return colId
+    return -1
+
+def add_or_replace_timestamp(row, timestamp):
+    colId = find_column_index_by_prefix(row, TIMESTAMP)
+    if colId == -1:
+        row.append(f'{TIMESTAMP}{timestamp}')
+    else:
+        row[colId] = (f'{TIMESTAMP}{timestamp}')
+
+def find_row_index(rows, key, value):
+    for id, row in enumerate(rows):
+        for col in row:
+            if col.startswith(key):
+                val = col[len(key):len(col)].strip()
+                if val == value:
+                    return id
+    return -1
+
+def set_timestamp_in_config(rawConfig, id, timestamp):
+    data = rawConfig[1][0]
+    rowIndex = find_row_index(data, ID, id)
+    if rowIndex != -1:
+        add_or_replace_timestamp(data[rowIndex], timestamp)
+
+def get_sheet_formats_and_data(creds, targetRange):
     params = {'spreadsheetId': SPREADSHEET_ID,
               'ranges': targetRange,
               'fields': 'sheets(data(rowData(values(userEnteredFormat,userEnteredValue)),startColumn,startRow))'}
     return sheet(creds).get(**params).execute()
+
+def load_data_per_tab(creds, tabs):
+    currentData = {}
+    for tab in tabs:
+        currentData[tab] = normalize_data_and_format(get_sheet_formats_and_data(creds, tab).get('sheets', [])[0].get('data', [])[0].get('rowData', []))
+    return currentData
+
+def is_stateful(config):
+    return config.get(STATEFUL, 'false') == 'true'
+
+def find_prev_row(config, rows, id):
+    data = rows[0]
+    rowIndex = find_row_index(data, ID, id)
+    if rowIndex == -1:
+        return []
+    else:
+        return data[rowIndex]
 
 def main():
     logging.basicConfig(
@@ -236,7 +281,6 @@ def main():
         datefmt='%Y-%m-%d %H:%M:%S')
 
     logging.info('Loading plugins')
-
 
     sys.path.append('plugins')
     plugins = {}
@@ -256,12 +300,15 @@ def main():
         logging.info('Loading common config')
         googleCreds = authenticate_google()
         sheetMetadata = load_sheet_metadata(googleCreds)
-        config = load_confg(googleCreds, plugins)
+        rawConfig = load_confg(googleCreds, plugins)
+        config = rawConfig[0]
         tabs = extract_from_config(config, TAB, False)
         logging.info('Configs loaded')
 
         logging.info('Executing plugins')
         results = {}
+
+        currentData = load_data_per_tab(googleCreds, tabs)
         for plugin_name in plugins:
             logging.info(f'Executing plugin {plugin_name}')
             pluginRes = {}
@@ -269,7 +316,24 @@ def main():
                 if pluginConfig[TAB] not in pluginRes:
                     pluginRes[pluginConfig[TAB]] = []
 
-                res = plugins[plugin_name].execute(pluginConfig)
+                if is_stateful(pluginConfig):
+                    res = []
+                    if TIMESTAMP in pluginConfig:
+                        # has been executed already, call the plugin
+                        resWithTimestamp = plugins[plugin_name].execute_stateful(
+                            pluginConfig,
+                            find_prev_row(pluginConfig, currentData[pluginConfig[TAB]], pluginConfig[ID]),
+                            float(pluginConfig[TIMESTAMP])
+                            )
+                        res = resWithTimestamp[RES]
+                        if len(res) > 0:
+                            res.append(f'{ID}{pluginConfig[ID]}')
+                        set_timestamp_in_config(rawConfig, pluginConfig[ID], resWithTimestamp[TIMESTAMP])
+                    else:
+                        # has never been executed, just remember the current timestamp
+                        set_timestamp_in_config(rawConfig, pluginConfig[ID], datetime.timestamp(datetime.now()))
+                else:
+                    res = plugins[plugin_name].execute(pluginConfig)
                 if len(res) != 0:
                     pluginRes[pluginConfig[TAB]].append(res)
 
@@ -283,9 +347,15 @@ def main():
                 if tab in results[plugin_name]:
                     toUpdate[plugin_name] = results[plugin_name][tab]
             logging.info(f'Updating tab {tab}')
-            refresh_spreadsheet(googleCreds, toUpdate, tab, sheetMetadata)       
+            refresh_spreadsheet(googleCreds, toUpdate, tab, sheetMetadata, currentData[tab])
 
+        logging.info('Updating tab Config')
+        refresh_spreadsheet(googleCreds, [], 'Config', sheetMetadata, rawConfig[1])
         logging.info(f'All tabs updated, sleeping for {timeout}s')
+
+        
+
+        break
         time.sleep(timeout)
 
 if __name__ == '__main__':
@@ -302,3 +372,6 @@ if __name__ == '__main__':
 # format the section titles to be prettier
 # add support for conditional formatting (e.g. if the num of bugs is higher than X than make it red)
 # formatting inside of cell does not survive a re-render
+# add validations of params from the "config" tab - currently the app crashes if something is missing
+# siall (simply integrate it all, or, see all)
+# the config tab update takes suspiciously long time
