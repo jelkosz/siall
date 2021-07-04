@@ -145,7 +145,7 @@ def add_column_heights(numOfRows, sheetId, formatBody):
 # If the section is in the toUpdate and it has some values (eg non empty list), the section content will be replaced by the values
 # If the section is in the toUpdate and it has an empty list as a value, the whole section will be removed from the result
 # If the section is not in the toUpdate, it will be ignored (e.g. the content of the section will be preserved as is)
-def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata, formattedRows):
+def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata, formattedRows, appendLastLine = True):
     data = formattedRows[0]
     formats = formattedRows[1]
 
@@ -195,7 +195,8 @@ def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata, formattedRo
     # If that one row contains some data/formats, it might cause issues. Especially if that one row was meant to
     # be deleted. This way the last row of the sheet will always be empty (unless the user adds something there during the cycle, which sould not be a big deal)
     # The row can not be empty since the API would not return it in that case, so at least some value needs to be in it
-    newValues.append(['_'])
+    if appendLastLine:
+        newValues.append(['_'])
     add_column_heights(len(newValues), sheetId, formatBody)
     write_to_spreadsheet(creds, newValues, targetRange, sheetId, formatBody, len(data))
 
@@ -350,10 +351,8 @@ def main():
             refresh_spreadsheet(googleCreds, toUpdate, tab, sheetMetadata, currentData[tab])
 
         logging.info('Updating tab Config')
-        refresh_spreadsheet(googleCreds, [], 'Config', sheetMetadata, rawConfig[1])
+        refresh_spreadsheet(googleCreds, [], 'Config', sheetMetadata, rawConfig[1], False)
         logging.info(f'All tabs updated, sleeping for {timeout}s')
-
-        
 
         break
         time.sleep(timeout)
@@ -373,5 +372,4 @@ if __name__ == '__main__':
 # add support for conditional formatting (e.g. if the num of bugs is higher than X than make it red)
 # formatting inside of cell does not survive a re-render
 # add validations of params from the "config" tab - currently the app crashes if something is missing
-# siall (simply integrate it all, or, see all)
 # the config tab update takes suspiciously long time
