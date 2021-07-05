@@ -8,9 +8,9 @@ from functools import reduce
 from jira import JIRA
 import re
 
-from common.constants import TAB, LABEL, SPLIT_BY, QUERY, ID, STATEFUL, TIMESTAMP, RES, IGNORE_FIELDS
+from common.constants import TAB, LABEL, SPLIT_BY, QUERY, ID, STATEFUL, TIMESTAMP, RES, IGNORE_FIELDS, RESTRICT_TIME, MENTIONS, SPLIT
 from common.formatting import formatted_label_from_config
-from common.helpers import split_issues
+from common.helpers import split_issues, split_array_from_config
 
 # dependencies:
 # pip install jira
@@ -22,7 +22,7 @@ def get_config_key():
     return 'jira-filter'
 
 def get_config_params():
-    return [LABEL, TAB, QUERY, SPLIT_BY, MAX_RESULTS, IGNORE_FIELDS, ID, STATEFUL, TIMESTAMP]
+    return [LABEL, TAB, QUERY, SPLIT_BY, MAX_RESULTS, IGNORE_FIELDS, MENTIONS, ID, STATEFUL, RESTRICT_TIME, TIMESTAMP, SPLIT]
 
 def rgetattr(obj, attr, *args):
     def _getattr(obj, attr):
@@ -112,44 +112,62 @@ def parse_prev_row(prevRows):
     return res
 
 def execute_stateful(config, prevRow, lastExecutedTs):
-    ignoreFields = config.get(IGNORE_FIELDS, '').split(',')
+    ignoreFields = split_array_from_config(config, IGNORE_FIELDS)
+    mentionsFields = split_array_from_config(config,MENTIONS)
+    restrictTime = config.get(RESTRICT_TIME, 'updated')
+    split = config.get(SPLIT, 'true')
+
     fieldToListOfChanges = parse_prev_row(prevRow)
     jql = config[QUERY]
     if len(jql.strip()) > 0:
         jql = jql + ' and '
-    jql = f'{jql}updated > "{to_query_time(lastExecutedTs)}"'
+    jql = f'{jql}{restrictTime} > "{to_query_time(lastExecutedTs)}"'
+
+    # todo: if the "split" is false, the exapands here are not needed
     issues = init_jira().search_issues(jql, maxResults=config[MAX_RESULTS], expand='changelog', fields = 'comment')
     lastTimestampFromResults = lastExecutedTs
 
-    for issue in issues:
-        for history in issue.changelog.histories:
-            ts = to_timestamp(history.created)
-            if ts <= lastExecutedTs:
-                # something has changed on this issue (otherwise it would not be loaded) but this particular change happend before the last time this has been executed
-                # so no need to show it
-                continue
-            if ts > lastTimestampFromResults:
-                lastTimestampFromResults = ts
-            for item in history.items:
-                f = item.field
-                if f in ignoreFields:
-                    continue
-                if f not in fieldToListOfChanges:
-                    fieldToListOfChanges[f] = []
-                if issue.key not in fieldToListOfChanges[f]:
-                    fieldToListOfChanges[f].append(issue.key)
 
-        mention = 'mention'
-        if mention not in ignoreFields:
-            for c in issue.fields.comment.comments:
-                if to_timestamp(c.created) <= lastExecutedTs:
-                    # too old, skip...
+    if split == 'false':
+        fieldToListOfChanges['all'] = []
+        for issue in issues:
+            for history in issue.changelog.histories:
+                ts = to_timestamp(history.created)
+                if ts > lastTimestampFromResults:
+                    lastTimestampFromResults = ts
+            fieldToListOfChanges['all'].append(issue.key)
+    else:
+        for issue in issues:
+            for history in issue.changelog.histories:
+                ts = to_timestamp(history.created)
+                if ts <= lastExecutedTs:
+                    # something has changed on this issue (otherwise it would not be loaded) but this particular change happend before the last time this has been executed
+                    # so no need to show it
                     continue
-                if mention not in fieldToListOfChanges:
-                    fieldToListOfChanges[mention] = []
-                if '[~tjelinek]' in c.body:
-                    if issue.key not in fieldToListOfChanges[mention]:
-                        fieldToListOfChanges[mention].append(issue.key)
+                if ts > lastTimestampFromResults:
+                    lastTimestampFromResults = ts
+                for item in history.items:
+                    f = item.field
+                    if f in ignoreFields:
+                        continue
+                    if f not in fieldToListOfChanges:
+                        fieldToListOfChanges[f] = []
+                    if issue.key not in fieldToListOfChanges[f]:
+                        fieldToListOfChanges[f].append(issue.key)
+
+            mention = 'mention'
+            if mention not in ignoreFields and len(mentionsFields) > 0:
+                for c in issue.fields.comment.comments:
+                    if to_timestamp(c.created) <= lastExecutedTs:
+                        # too old, skip...
+                        continue
+                    for mentionsField in mentionsFields:
+                        mentionKey = f'{mentionsField} mentioned'
+                        if mentionKey not in fieldToListOfChanges:
+                            fieldToListOfChanges[mentionKey] = []
+                        if f'[~{mentionsField}]' in c.body:
+                            if issue.key not in fieldToListOfChanges[mentionKey]:
+                                fieldToListOfChanges[mentionKey].append(issue.key)
 
     res = []
     if len(fieldToListOfChanges) > 0:

@@ -3,6 +3,11 @@
 from common.formatting import formatted_label_from_config
 from common.constants import SPLIT_BY
 
+# gets the config and what key to look for in it. Expects to find either a comma separated list of strings in it or nothing.
+# If it finds nothing, it returns an empty list.
+# If it finds a comma separated list of items, it returns an array of this items with empty strings removed
+def split_array_from_config(config, key):
+    return list(filter(lambda item: item, config.get(key, '').split(',')))
 
 def split_issues(config, issues, linkToAll, createIssueQuery, extractKey, extractVal):
     if len(issues) == 0:
