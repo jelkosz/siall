@@ -26,3 +26,14 @@ ID = 'id:'
 TIMESTAMP = 'lastExecutedTimestamp:'
 STATEFUL = 'stateful:'
 RES = 'res:'
+
+# stateful jira
+IGNORE_FIELDS = 'ignoreFields:'
+MENTIONS = 'mentions:'
+# when tracking changes, the changes are always tracked since some time.
+# For example,
+#   if you want to see issues which has changed since the last time you've checked, use: restrictTime: updated
+#   if you want to see issues which has been created since the last time you've checked, use: restrictTime: created
+# default is updated
+RESTRICT_TIME = 'restrictTime:'
+SPLIT = 'split:'
