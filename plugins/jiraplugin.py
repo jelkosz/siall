@@ -46,19 +46,17 @@ def create_query(issueIds):
 
 def init_jira():
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "", ["jirauser=", "jirapass="])
+        opts, args = getopt.getopt(sys.argv[1:], "", ["jiratoken="])
     except getopt.GetoptError:
-        print('Jira credentials not provided, ignoring plugin. In order to execute the jira plugin, please run the python main.py --jirauser <jira user name> --jirapass <jira password>')
+        print('Jira credentials not provided, ignoring plugin. In order to execute the jira plugin, please run the python main.py --jiratoken <jira token>')
         return []
 
     for opt, arg in opts:
-      if opt in ("--jirauser"):
-        user = arg
-      elif opt in ("--jirapass"):
-        passwd = arg
+      if opt in ("--jiratoken"):
+        jiratoken = arg
     for _ in range(3):
         try:
-            return JIRA(server=JIRA_BASE_URL, auth=(user, passwd))
+            return JIRA(server=JIRA_BASE_URL, token_auth=jiratoken)
         except:
             # jira likes to fail from time to time and next time it passes. Lets try 3 times
             print('longin to jira failed, trying again in 2 seconds')
