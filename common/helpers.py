@@ -23,6 +23,8 @@ def split_issues(config, issues, linkToAll, createIssueQuery, extractKey, extrac
     splitToCounts = {}
     for issue in issues:
         val = extractVal(issue, splitBy)
+        if isinstance(val, list):
+            val = ", ".join(val)
         if val in splitToCounts:
             splitToCounts[val].append(extractKey(issue))
         else:

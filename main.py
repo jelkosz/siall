@@ -370,6 +370,4 @@ if __name__ == '__main__':
 # optimize: the sheet() does not need to be called repeatedly
 # format the section titles to be prettier
 # add support for conditional formatting (e.g. if the num of bugs is higher than X than make it red)
-# formatting inside of cell does not survive a re-render
 # add validations of params from the "config" tab - currently the app crashes if something is missing
-# the config tab update takes suspiciously long time
