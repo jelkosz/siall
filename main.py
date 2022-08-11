@@ -12,7 +12,7 @@ from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 from common.constants import *
 from common.googleapi import authenticate_google
-from common.formatting import boldFormat
+from common.formatting import boldFormat, sectionFormat
 
 def sheet(creds):
     spreadsheetService = build('sheets', 'v4', credentials=creds, cache_discovery=False)
@@ -145,7 +145,7 @@ def add_column_heights(numOfRows, sheetId, formatBody):
 # If the section is in the toUpdate and it has some values (eg non empty list), the section content will be replaced by the values
 # If the section is in the toUpdate and it has an empty list as a value, the whole section will be removed from the result
 # If the section is not in the toUpdate, it will be ignored (e.g. the content of the section will be preserved as is)
-def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata, formattedRows, appendLastLine = True):
+def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata, formattedRows):
     data = formattedRows[0]
     formats = formattedRows[1]
 
@@ -165,7 +165,7 @@ def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata, formattedRo
         if len(row) > 0 and row[0].startswith(SECTION):
             section = parse_row(row, [SECTION])[SECTION]
             if section in toUpdate and len(toUpdate[section]) != 0:
-                add_formatted(newValues, row, sheetId, formatBody, boldFormat(True))
+                add_formatted(newValues, row, sheetId, formatBody, sectionFormat())
                 updatedSections.append(section)
 
                 for newValue in toUpdate[section]:
@@ -176,7 +176,7 @@ def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata, formattedRo
                 # it needs to be completely removed, ignore all other rows
                 copyRow = False
             if section not in toUpdate:
-                add_formatted(newValues, row, sheetId, formatBody, boldFormat(True))
+                add_formatted(newValues, row, sheetId, formatBody, sectionFormat())
                 # no mention in the toUpdate, just copy the conent over
                 copyRow = True
         else:
@@ -187,7 +187,7 @@ def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata, formattedRo
     for newSection in toUpdate:
         # this is a new section, needs to be added to the output
         if newSection not in updatedSections and len(toUpdate[newSection]) != 0:
-            add_formatted(newValues, [SECTION + ' ' + newSection], sheetId, formatBody, boldFormat(True))
+            add_formatted(newValues, [SECTION + ' ' + newSection], sheetId, formatBody, sectionFormat())
             for newValue in toUpdate[newSection]:
                 add_formatted_from_values(newValues, newValue, sheetId, formatBody)
 
@@ -195,8 +195,13 @@ def refresh_spreadsheet(creds, toUpdate, targetRange, sheetMetadata, formattedRo
     # If that one row contains some data/formats, it might cause issues. Especially if that one row was meant to
     # be deleted. This way the last row of the sheet will always be empty (unless the user adds something there during the cycle, which sould not be a big deal)
     # The row can not be empty since the API would not return it in that case, so at least some value needs to be in it
-    if appendLastLine:
+    if len(newValues) > 0:
+        clearedLastRow = [v for v in newValues[-1] if v != '']
+        if not (len(clearedLastRow) == 1 and clearedLastRow[0] == '_'):
+            newValues.append(['_'])
+    else:
         newValues.append(['_'])
+
     add_column_heights(len(newValues), sheetId, formatBody)
     write_to_spreadsheet(creds, newValues, targetRange, sheetId, formatBody, len(data))
 
@@ -351,7 +356,7 @@ def main():
             refresh_spreadsheet(googleCreds, toUpdate, tab, sheetMetadata, currentData[tab])
 
         logging.info('Updating tab Config')
-        refresh_spreadsheet(googleCreds, [], 'Config', sheetMetadata, rawConfig[1], False)
+        refresh_spreadsheet(googleCreds, [], 'Config', sheetMetadata, rawConfig[1])
         logging.info(f'All tabs updated, sleeping for {timeout}s')
 
         break
