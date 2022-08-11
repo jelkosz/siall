@@ -361,7 +361,6 @@ if __name__ == '__main__':
     main()
 
 # TODO:
-# sorting of the bz output
 # sorting of the sections
 # lock the sheet while updating it
 # send a notification under some conditions

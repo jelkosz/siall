@@ -9,7 +9,7 @@ from common.constants import SPLIT_BY
 def split_array_from_config(config, key):
     return list(filter(lambda item: item, config.get(key, '').split(',')))
 
-def split_issues(config, issues, linkToAll, createIssueQuery, extractKey, extractVal):
+def split_issues(config, issues, linkToAll, createIssueQuery, extractKey, extractVal, sortKeys = None):
     if len(issues) == 0:
         return []
 
@@ -30,7 +30,11 @@ def split_issues(config, issues, linkToAll, createIssueQuery, extractKey, extrac
         else:
             splitToCounts[val] = [extractKey(issue)]
     
-    for splitToCount in splitToCounts:
+    sortedKeys = splitToCounts.keys()
+    if sortKeys is not None:
+        sortedKeys = sortKeys(splitToCounts.keys())
+
+    for splitToCount in sortedKeys:
         queryUrl = createIssueQuery(splitToCounts[splitToCount])
         values.append(f'=HYPERLINK(\"{queryUrl}\", \"{splitToCount}: {len(splitToCounts[splitToCount])}\")')
     

@@ -24,6 +24,7 @@ def get_config_key():
 def get_config_params():
     return [LABEL, TAB, QUERY, SPLIT_BY, MAX_RESULTS, IGNORE_FIELDS, MENTIONS, ID, STATEFUL, RESTRICT_TIME, TIMESTAMP, SPLIT]
 
+# for example fields.status.name
 def rgetattr(obj, attr, *args):
     def _getattr(obj, attr):
         if obj is None:

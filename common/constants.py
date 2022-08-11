@@ -17,6 +17,9 @@ STATUS_ERROR = 'ERROR'
 # bugzilla specific parameters
 # how the result should be split (e.g. by status/priority/severity)
 SPLIT_BY = 'splitBy:'
+
+# short the results in this order
+SORT = 'sort:'
 # INTERNAL CONSTANTS
 # Section of output
 SECTION = 'section:'
