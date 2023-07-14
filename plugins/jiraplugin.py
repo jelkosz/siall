@@ -33,7 +33,7 @@ def rgetattr(obj, attr, *args):
     return reduce(_getattr, [obj] + attr.split('.'))
 
 def escape_query(query):
-    return query.replace('"', '""')
+    return query.replace('"', '""').replace('&', '%26')
 
 def create_query(issueIds):
     baseJql = f'{JIRA_BASE_URL}/issues/?jql='
